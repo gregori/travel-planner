@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "skills/agent-browser/SKILL.md",
       "computedHash": "a674b7d81066e3cc471a7512ddb4ae724418cbfefa75cbb050b0dc430e4d57a0"
+    },
+    "grill-me": {
+      "source": "anthropic/grill-me",
+      "sourceType": "github",
+      "skillPath": "skills/grill-me/SKILL.md",
+      "computedHash": "b785c8e82177d3dd572b8623eee3c9f531f93dfgf86dcc161c1c1ed541f5e68b1"
     }
   }
 }
