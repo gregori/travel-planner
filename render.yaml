@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: travel-planner-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    envVars:
+      - key: LLM_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL_CHAIN
+        value: openrouter/auto
+      - key: BOOKING_API_KEY
+        sync: false
+      - key: TRIPADVISOR_API_KEY
+        sync: false
+      - key: EXCHANGE_API_URL
+        value: https://api.frankfurter.app
+      - key: SESSION_TTL_MINUTES
+        value: "60"
+      - key: MAX_TOOL_CALLS_PER_SESSION
+        value: "25"
+      - key: MAX_TOKENS_PER_SESSION
+        value: "200000"
+      - key: CACHE_TTL_MINUTES
+        value: "15"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "30"
