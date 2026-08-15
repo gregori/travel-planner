@@ -108,7 +108,7 @@ Usuário ──chat──▶ /api/chat (SSE)
   Hospedagem     Atrações        Voos           Câmbio
   (Booking)     (Tripadvisor)  (busca web)    (API pública)
       └──────────────┴──────────────┴───────────────┘
-                     │  toda resposta carrega Fonte
+                     │  toda resposta carrega Source
                      ▼
               TripBrief + TripPlan (sessão em memória)
                      │
@@ -141,10 +141,10 @@ para o MVP.
 |---|:--:|---|---|
 | RF-10 | M | Buscar hospedagem no destino via **Booking.com**, filtrando por datas, hóspedes e faixa de preço. | Retorna ≥ 3 opções com nome, preço/noite, localização e link. |
 | RF-11 | M | Buscar atrações e passeios via **Tripadvisor**, filtrados por interesses e perfil dos viajantes. | Retorna atrações compatíveis com os interesses do briefing. |
-| RF-12 | M | Estimar preço de voos por rota/época via pesquisa web, retornando **faixa** (mín–máx), nunca valor único falsamente preciso. | Todo voo aparece como faixa e rotulado `estimativa`. |
+| RF-12 | M | Estimar preço de voos por rota/época via pesquisa web, retornando **faixa** (mín–máx), nunca valor único falsamente preciso. | Todo voo aparece como faixa e rotulado `estimate`. |
 | RF-13 | M | Cotar câmbio em API pública e converter todos os valores para a moeda de exibição. | Valores exibidos na moeda escolhida, com taxa e timestamp visíveis. |
 | RF-14 | M | Sugerir restaurantes respeitando **todas** as restrições alimentares do briefing. | Nenhuma sugestão viola uma restrição declarada; a compatibilidade é justificada em uma linha. |
-| RF-15 | M | Cada dado externo carrega uma `Fonte` (§7.3) com tipo (`real`/`estimativa`/`mock`), provedor, URL quando houver e `consultado_em`. | 100% dos itens de custo têm `Fonte` preenchida. |
+| RF-15 | M | Cada dado externo carrega uma `Source` (§7.3) com tipo (`real`/`estimate`/`mock`), provedor, URL quando houver e `retrieved_at`. | 100% dos itens de custo têm `Source` preenchida. |
 | RF-16 | M | Quando um provedor real falha ou não tem credencial, o sistema cai para mock/estimativa e **marca visivelmente** o resultado. | Com credenciais ausentes, o app funciona ponta a ponta e exibe aviso de dados simulados. |
 | RF-17 | S | Resultados de busca são cacheados por sessão (§RNF-08). | Duas buscas idênticas no mesmo turno geram uma única chamada externa. |
 
@@ -202,27 +202,27 @@ Todos os modelos são Pydantic v2 e servem de contrato entre backend, agente e f
 
 ```python
 class TripBrief(BaseModel):
-    origem: str | None                    # cidade ou aeroporto de partida
-    destino: str                          # cidade / região / país
-    data_ida: date | None
-    data_volta: date | None
-    mes_referencia: str | None            # alternativa a datas exatas
-    duracao_dias: int | None
-    datas_flexiveis: bool = False
-    adultos: int = 1
-    criancas_idades: list[int] = []
-    orcamento_total: Decimal | None
-    moeda_orcamento: str = "BRL"          # ISO 4217
-    moeda_exibicao: str = "BRL"
-    tolerancia_orcamento: float = 0.10    # RF-26
-    tipo_viagem: Literal["passeio","romantica","familia","aventura","cultural","descanso"]
-    interesses: list[str] = []
-    restricoes_alimentares: list[str] = []
-    restricoes_mobilidade: str | None
-    outras_restricoes: list[str] = []
-    ritmo: Literal["leve","moderado","intenso"] = "moderado"
-    nacionalidade: str | None             # para requisitos de entrada (RF-28)
-    campos_inferidos: list[str] = []      # RF-05
+    origin: str | None                    # cidade ou aeroporto de partida
+    destination: str                      # cidade / região / país
+    start_date: date | None
+    end_date: date | None
+    reference_month: str | None           # alternativa a datas exatas
+    duration_days: int | None
+    flexible_dates: bool = False
+    adults: int = 1
+    children_ages: list[int] = []
+    total_budget: Decimal | None
+    budget_currency: str = "BRL"          # ISO 4217
+    display_currency: str = "BRL"
+    budget_tolerance: float = 0.10        # RF-26
+    trip_type: Literal["sightseeing","romantic","family","adventure","cultural","relaxation"]
+    interests: list[str] = []
+    dietary_restrictions: list[str] = []
+    mobility_restrictions: str | None
+    other_restrictions: list[str] = []
+    pace: Literal["light","moderate","intense"] = "moderate"
+    nationality: str | None               # para requisitos de entrada (RF-28)
+    inferred_fields: list[str] = []       # RF-05
 ```
 
 ### 7.2 `TripPlan` — a saída
@@ -230,56 +230,56 @@ class TripBrief(BaseModel):
 ```python
 class TripPlan(BaseModel):
     brief: TripBrief
-    resumo: str
-    opcoes_voo: list[OpcaoVoo]            # >= 2 (RF-24)
-    opcoes_hospedagem: list[OpcaoHospedagem]  # >= 3
-    itinerario: list[DiaItinerario]
-    refeicoes: list[SugestaoRefeicao]
-    orcamento: Orcamento
-    cambio: CotacaoCambio | None
+    summary: str
+    flight_options: list[FlightOption]            # >= 2 (RF-24)
+    accommodation_options: list[AccommodationOption]  # >= 3
+    itinerary: list[ItineraryDay]
+    meals: list[MealSuggestion]
+    budget: Budget
+    exchange_rate: ExchangeRate | None
     checklist: Checklist
-    fontes: list[Fonte]                   # RF-32
-    avisos: list[str]                     # degradações, estouros, lacunas
-    gerado_em: datetime
+    sources: list[Source]                 # RF-32
+    warnings: list[str]                   # degradações, estouros, lacunas
+    generated_at: datetime
 
-class DiaItinerario(BaseModel):
-    dia: int
-    data: date | None
-    regiao: str                           # RF-21
-    manha: list[Atividade]
-    tarde: list[Atividade]
-    noite: list[Atividade]
-    deslocamentos: list[Deslocamento]     # tempo estimado entre blocos
-    custo_estimado_dia: Decimal
+class ItineraryDay(BaseModel):
+    day: int
+    date: date | None
+    region: str                           # RF-21
+    morning: list[Activity]
+    afternoon: list[Activity]
+    evening: list[Activity]
+    transfers: list[Transfer]             # tempo estimado entre blocos
+    estimated_day_cost: Decimal
 
-class Orcamento(BaseModel):
-    voos: Decimal
-    hospedagem: Decimal
-    alimentacao: Decimal
-    passeios: Decimal
-    transporte_local: Decimal
-    contingencia: Decimal                 # >= 10% (RF-25)
+class Budget(BaseModel):
+    flights: Decimal
+    accommodation: Decimal
+    food: Decimal
+    activities: Decimal
+    local_transport: Decimal
+    contingency: Decimal                  # >= 10% (RF-25)
     total: Decimal
-    teto_informado: Decimal | None
-    diferenca: Decimal | None             # positivo = estouro
-    dentro_do_teto: bool
-    alertas: list[str]                    # RF-26
+    stated_cap: Decimal | None
+    difference: Decimal | None            # positivo = estouro
+    within_cap: bool
+    alerts: list[str]                     # RF-26
 ```
 
-### 7.3 `Fonte` — a espinha dorsal da transparência
+### 7.3 `Source` — a espinha dorsal da transparência
 
 ```python
-class Fonte(BaseModel):
-    tipo: Literal["real", "estimativa", "mock"]
-    provedor: str                         # "booking", "tripadvisor", "web", "exchange-api", "fixture"
+class Source(BaseModel):
+    type: Literal["real", "estimate", "mock"]
+    provider: str                         # "booking", "tripadvisor", "web", "exchange-api", "fixture"
     url: str | None
-    consultado_em: datetime
-    confianca: Literal["alta", "media", "baixa"]
-    observacao: str | None
+    retrieved_at: datetime
+    confidence: Literal["high", "medium", "low"]
+    note: str | None
 ```
 
 **Regra invariante:** todo campo monetário exibido ao usuário referencia uma
-`Fonte`. Um plano sem `Fonte` em algum custo é inválido e deve falhar na
+`Source`. Um plano sem `Source` em algum custo é inválido e deve falhar na
 validação, não ser renderizado.
 
 ---
@@ -293,9 +293,9 @@ validação, não ser renderizado.
 | `GET` | `/api/session/{id}/brief` | Estado atual do `TripBrief` (para o painel lateral). |
 | `GET` | `/api/session/{id}/plan` | `TripPlan` atual em JSON. |
 | `GET` | `/api/session/{id}/export?format=md\|pdf` | Download do documento. |
-| `GET` | `/api/health` | Status do serviço e dos provedores (`real`/`degradado`/`indisponível`). |
+| `GET` | `/api/health` | Status do serviço e dos provedores (`real`/`unavailable`/`mock`). |
 
-**Erros:** formato uniforme `{ "erro": { "codigo": str, "mensagem": str, "recuperavel": bool } }`.
+**Erros:** formato uniforme `{ "error": { "code": str, "message": str, "recoverable": bool } }`.
 Mensagens de erro voltadas ao usuário são em pt-BR e acionáveis.
 
 ---
@@ -322,16 +322,16 @@ Mensagens de erro voltadas ao usuário são em pt-BR e acionáveis.
 
 | Ferramenta | Entrada | Saída |
 |---|---|---|
-| `atualizar_briefing` | campos parciais do `TripBrief` | briefing consolidado |
-| `buscar_hospedagem` | cidade, check-in, check-out, hóspedes, faixa de preço | lista de `OpcaoHospedagem` + `Fonte` |
-| `buscar_atracoes` | cidade, interesses, perfil dos viajantes | lista de `Atividade` + `Fonte` |
-| `buscar_restaurantes` | cidade, restrições, faixa de preço | lista de `SugestaoRefeicao` + `Fonte` |
-| `estimar_voos` | origem, destino, datas, passageiros | faixa de preço + `Fonte` (`estimativa`) |
-| `cotar_cambio` | moeda origem, moeda destino | taxa + timestamp + `Fonte` |
-| `info_pratica` | destino, nacionalidade, período | clima, documentação, tomada, moeda |
-| `calcular_orcamento` | itens de custo | `Orcamento` validado com alertas |
+| `update_brief` | campos parciais do `TripBrief` | briefing consolidado |
+| `search_accommodation` | cidade, check-in, check-out, hóspedes, faixa de preço | lista de `AccommodationOption` + `Source` |
+| `search_attractions` | cidade, interesses, perfil dos viajantes | lista de `Activity` + `Source` |
+| `search_restaurants` | cidade, restrições, faixa de preço | lista de `MealSuggestion` + `Source` |
+| `estimate_flights` | origem, destino, datas, passageiros | faixa de preço + `Source` (`estimate`) |
+| `get_exchange_rate` | moeda origem, moeda destino | taxa + timestamp + `Source` |
+| `practical_info` | destino, nacionalidade, período | clima, documentação, tomada, moeda |
+| `calculate_budget` | itens de custo | `Budget` validado com alertas |
 
-Toda ferramenta **deve** retornar `Fonte` junto com o dado. Uma ferramenta que
+Toda ferramenta **deve** retornar `Source` junto com o dado. Uma ferramenta que
 não consiga produzir dado real retorna resultado vazio com motivo — nunca dado
 sintético não rotulado (RNF-02).
 
@@ -340,16 +340,16 @@ sintético não rotulado (RNF-02).
 ## 10. Camada de provedores
 
 ```python
-class ProvedorHospedagem(Protocol):
-    async def buscar(self, criterios: CriteriosHospedagem) -> ResultadoBusca: ...
+class AccommodationProvider(Protocol):
+    async def search(self, criteria: AccommodationCriteria) -> SearchResult: ...
 ```
 
 - Implementações: `BookingProvider` (MCP), `TripadvisorProvider` (MCP),
   `WebFlightEstimator`, `ExchangeRateProvider`, e um `MockProvider` por interface
   alimentado por fixtures JSON versionadas.
 - **Seleção em runtime:** credencial presente e provedor saudável → real;
-  caso contrário → mock, com `Fonte.tipo="mock"` e aviso propagado ao
-  `TripPlan.avisos`.
+  caso contrário → mock, com `Source.type="mock"` e aviso propagado ao
+  `TripPlan.warnings`.
 - **Circuit breaker por provedor:** após 3 falhas consecutivas, o provedor é
   marcado indisponível por 5 minutos e o sistema usa o fallback direto, sem
   pagar o custo de timeout a cada chamada.
@@ -381,7 +381,7 @@ São Paulo → Lisboa, 7 dias, 2 adultos + 1 criança (6 anos), teto R$ 25.000, 
 - [ ] Itinerário de 3 dias com ritmo folgado e jantares como âncora.
 - [ ] Dia de chegada e partida respeitam horários de voo e check-in/out (RF-23).
 - [ ] Atividades do mesmo dia geograficamente agrupadas (RF-21).
-- [ ] Nenhuma sugestão sem `Fonte` (RNF-01).
+- [ ] Nenhuma sugestão sem `Source` (RNF-01).
 
 ### CEN-3 — Nacional econômico
 5 dias no Brasil, orçamento apertado.
@@ -410,7 +410,7 @@ backend/
     api/              # rotas FastAPI, SSE
     agent/            # loop de tool-calling, prompts, ferramentas
     providers/        # protocolos + implementações reais e mock
-    models/           # Pydantic: TripBrief, TripPlan, Fonte...
+    models/           # Pydantic: TripBrief, TripPlan, Source...
     export/           # Markdown e PDF
     session/          # store em memória com TTL
     llm/              # LLMClient, cadeia de fallback, FakeLLM
@@ -454,11 +454,11 @@ CACHE_TTL_MINUTES=15
 
 | Risco | Impacto | Mitigação |
 |---|---|---|
-| Preço de voo sem API confiável | Estimativas imprecisas frustram o usuário | Sempre exibir faixa, nunca valor único; rótulo `estimativa` e confiança `baixa`/`media` (RF-12) |
+| Preço de voo sem API confiável | Estimativas imprecisas frustram o usuário | Sempre exibir faixa, nunca valor único; rótulo `estimate` e confiança `low`/`medium` (RF-12) |
 | Modelo barato/gratuito com tool-calling fraco | Agente entra em loop ou ignora ferramentas | Contrato mínimo em §9; cadeia de fallback; teto de chamadas (RNF-08) |
 | Modelo gratuito descontinuado ou com rate limit | Serviço para | IDs como configuração + fallback automático (RNF-07) |
 | Provedor MCP indisponível no runtime do backend | Sem dados reais | Fallback mock rotulado; `/api/health` expõe o estado (RF-16) |
-| Alucinação de preços ou atrações inexistentes | Perda de confiança | RNF-02 + validação de que todo custo tem `Fonte` |
+| Alucinação de preços ou atrações inexistentes | Perda de confiança | RNF-02 + validação de que todo custo tem `Source` |
 | Sessão em memória perdida | Usuário perde o plano | Aviso na UI + incentivo à exportação precoce |
 
 **Premissas:** o usuário tem acesso à internet; os conectores Booking.com e

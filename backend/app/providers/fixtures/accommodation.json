@@ -1,0 +1,19 @@
+{
+  "lisboa": [
+    {"name": "Hotel Avenida Liberdade", "type": "hotel", "price_per_night": 620, "currency": "EUR", "location": "Avenida da Liberdade, Lisboa", "rating": 4.5, "link": "https://booking.com/hotel/pt/avenida-liberdade"},
+    {"name": "Alfama Family Suites", "type": "apart-hotel", "price_per_night": 480, "currency": "EUR", "location": "Alfama, Lisboa", "rating": 4.3, "link": "https://booking.com/hotel/pt/alfama-family-suites"},
+    {"name": "Baixa Central Hostel & Rooms", "type": "pousada", "price_per_night": 260, "currency": "EUR", "location": "Baixa, Lisboa", "rating": 4.0, "link": "https://booking.com/hotel/pt/baixa-central"},
+    {"name": "Belem River Hotel", "type": "hotel", "price_per_night": 390, "currency": "EUR", "location": "Belém, Lisboa", "rating": 4.4, "link": "https://booking.com/hotel/pt/belem-river"}
+  ],
+  "paris": [
+    {"name": "Hôtel Le Marais Charme", "type": "hotel", "price_per_night": 340, "currency": "EUR", "location": "Le Marais, Paris", "rating": 4.6, "link": "https://booking.com/hotel/fr/marais-charme"},
+    {"name": "Boutique Saint-Germain", "type": "hotel", "price_per_night": 410, "currency": "EUR", "location": "Saint-Germain-des-Prés, Paris", "rating": 4.7, "link": "https://booking.com/hotel/fr/saint-germain"},
+    {"name": "Montmartre Romantic Suites", "type": "apart-hotel", "price_per_night": 280, "currency": "EUR", "location": "Montmartre, Paris", "rating": 4.4, "link": "https://booking.com/hotel/fr/montmartre-suites"}
+  ],
+  "florianopolis": [
+    {"name": "Pousada Praia Mole", "type": "pousada", "price_per_night": 320, "currency": "BRL", "location": "Praia Mole, Florianópolis", "rating": 4.3, "link": "https://booking.com/hotel/br/praia-mole"},
+    {"name": "Hotel Centro Floripa", "type": "hotel", "price_per_night": 210, "currency": "BRL", "location": "Centro, Florianópolis", "rating": 4.0, "link": "https://booking.com/hotel/br/centro-floripa"},
+    {"name": "Lagoa da Conceição Hostel", "type": "hostel", "price_per_night": 140, "currency": "BRL", "location": "Lagoa da Conceição, Florianópolis", "rating": 4.1, "link": "https://booking.com/hotel/br/lagoa-hostel"},
+    {"name": "Jurerê Beach Hotel", "type": "hotel", "price_per_night": 380, "currency": "BRL", "location": "Jurerê Internacional, Florianópolis", "rating": 4.5, "link": "https://booking.com/hotel/br/jurere-beach"}
+  ]
+}
