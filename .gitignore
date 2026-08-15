@@ -1,0 +1,20 @@
+# Backend (Python / uv)
+backend/.venv/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/htmlcov/
+backend/.coverage
+**/__pycache__/
+*.pyc
+
+# Frontend (Node / Vite)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Ambiente
+.env
+*.local
+
+# Editor / OS
+.DS_Store
