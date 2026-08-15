@@ -8,4 +8,4 @@ Você deve seguir o seguinte processo para construir o projeto:
 4. Incorpore quaisquer alterações
 5. **IMPORTANTE** siga as instruções de `SELF_IMPROVE.md` para se melhorar.
 
-Você deve completar o passo 6 (self-improvement) antes de parar.
+Você deve completar o passo 5 (self-improvement) antes de parar.
