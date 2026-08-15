@@ -1,16 +1,16 @@
-import type { Fonte } from '../api/types'
+import type { Source } from '../api/types'
 
-const RÓTULOS: Record<Fonte['tipo'], string> = {
+const LABELS: Record<Source['type'], string> = {
   real: 'Dado real',
-  estimativa: 'Estimativa',
+  estimate: 'Estimativa',
   mock: 'Simulado',
 }
 
-export function SourceBadge({ fonte }: { fonte: Fonte | null | undefined }) {
-  if (!fonte) return null
+export function SourceBadge({ source }: { source: Source | null | undefined }) {
+  if (!source) return null
   return (
-    <span className={`source-badge source-badge--${fonte.tipo}`} title={fonte.observacao ?? undefined}>
-      {RÓTULOS[fonte.tipo]}
+    <span className={`source-badge source-badge--${source.type}`} title={source.note ?? undefined}>
+      {LABELS[source.type]}
     </span>
   )
 }

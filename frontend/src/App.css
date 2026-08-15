@@ -14,24 +14,24 @@
 
 .app__header p {
   margin: 0;
-  color: var(--cor-texto-suave);
+  color: var(--color-text-soft);
 }
 
-.app__ttl-aviso {
+.app__ttl-notice {
   margin-top: 0.5rem !important;
   font-size: 0.875rem;
   background: #fff3e0;
   border: 1px solid #f0c78a;
-  border-radius: var(--raio);
+  border-radius: var(--radius);
   padding: 0.5rem 0.75rem;
   display: inline-block;
 }
 
-.app__erro {
+.app__error {
   background: #fde8e4;
-  border: 1px solid var(--cor-alerta);
-  color: var(--cor-alerta);
-  border-radius: var(--raio);
+  border: 1px solid var(--color-alert);
+  color: var(--color-alert);
+  border-radius: var(--radius);
   padding: 0.75rem 1rem;
 }
 
@@ -49,10 +49,10 @@
 }
 
 .panel {
-  background: var(--cor-superficie);
-  border: 1px solid var(--cor-borda);
-  border-radius: var(--raio);
-  box-shadow: var(--sombra);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   padding: 1.25rem;
 }
 
@@ -69,7 +69,7 @@
   min-height: 420px;
 }
 
-.chat__mensagens {
+.chat__messages {
   flex: 1;
   overflow-y: auto;
   display: flex;
@@ -78,32 +78,32 @@
   padding: 0.25rem;
 }
 
-.chat__vazio {
-  color: var(--cor-texto-suave);
+.chat__empty {
+  color: var(--color-text-soft);
   font-size: 0.95rem;
 }
 
-.chat__bolha {
+.chat__bubble {
   max-width: 85%;
   padding: 0.55rem 0.85rem;
   border-radius: 14px;
   white-space: pre-wrap;
 }
 
-.chat__bolha--usuario {
+.chat__bubble--user {
   align-self: flex-end;
-  background: var(--cor-primaria);
+  background: var(--color-primary);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
 
-.chat__bolha--agente {
+.chat__bubble--agent {
   align-self: flex-start;
   background: #f0ede7;
   border-bottom-left-radius: 4px;
 }
 
-.chat__bolha--carregando {
+.chat__bubble--loading {
   display: flex;
   gap: 4px;
   align-items: center;
@@ -113,8 +113,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--cor-texto-suave);
-  animation: pulso 1.2s infinite ease-in-out;
+  background: var(--color-text-soft);
+  animation: pulse 1.2s infinite ease-in-out;
 }
 .dot:nth-child(2) {
   animation-delay: 0.2s;
@@ -122,7 +122,7 @@
 .dot:nth-child(3) {
   animation-delay: 0.4s;
 }
-@keyframes pulso {
+@keyframes pulse {
   0%,
   80%,
   100% {
@@ -142,7 +142,7 @@
 .chat__form input {
   flex: 1;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--cor-borda);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
 }
 
@@ -150,7 +150,7 @@
   padding: 0.6rem 1.1rem;
   border: none;
   border-radius: 8px;
-  background: var(--cor-primaria);
+  background: var(--color-primary);
   color: #fff;
   cursor: pointer;
 }
@@ -177,36 +177,36 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--cor-texto-suave);
+  color: var(--color-text-soft);
 }
 
-.brief-field__valor {
+.brief-field__value {
   font-weight: 600;
 }
 
-.brief-inferidos,
-.brief-faltantes {
+.brief-inferred,
+.brief-missing {
   margin-top: 1rem;
   font-size: 0.9rem;
-  color: var(--cor-texto-suave);
+  color: var(--color-text-soft);
 }
 
-.brief-panel--compacto {
+.brief-panel--compact {
   padding: 0.75rem 1.25rem;
 }
 
-.brief-panel--compacto summary {
+.brief-panel--compact summary {
   cursor: pointer;
   font-weight: 700;
   font-size: 1.05rem;
 }
 
-.brief-panel--compacto .brief-grid {
+.brief-panel--compact .brief-grid {
   margin-top: 0.75rem;
 }
 
 /* Plan view */
-.plan__cabecalho {
+.plan__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -214,8 +214,8 @@
   flex-wrap: wrap;
 }
 
-.plan__resumo {
-  color: var(--cor-texto-suave);
+.plan__summary {
+  color: var(--color-text-soft);
 }
 
 .export-buttons {
@@ -223,7 +223,7 @@
   gap: 0.5rem;
 }
 
-.botao {
+.btn {
   padding: 0.5rem 0.9rem;
   border-radius: 8px;
   text-decoration: none;
@@ -231,20 +231,20 @@
   font-size: 0.9rem;
 }
 
-.botao--primario {
-  background: var(--cor-primaria);
+.btn--primary {
+  background: var(--color-primary);
   color: #fff;
 }
 
-.botao--secundario {
+.btn--secondary {
   background: #fff;
-  border: 1px solid var(--cor-primaria);
-  color: var(--cor-primaria-escura);
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary-dark);
 }
 
 .plan details {
   margin-top: 1rem;
-  border-top: 1px solid var(--cor-borda);
+  border-top: 1px solid var(--color-border);
   padding-top: 0.75rem;
 }
 
@@ -254,16 +254,16 @@
   font-size: 1.05rem;
 }
 
-.avisos {
+.warnings {
   background: #fff3e0;
   border: 1px solid #f0c78a;
-  border-radius: var(--raio);
+  border-radius: var(--radius);
   padding: 0.6rem 1rem;
   margin: 0.75rem 0;
   list-style: none;
 }
 
-.cartoes {
+.cards {
   list-style: none;
   padding: 0;
   margin: 0.75rem 0 0;
@@ -272,38 +272,38 @@
   gap: 0.75rem;
 }
 
-.cartao {
-  border: 1px solid var(--cor-borda);
-  border-radius: var(--raio);
+.card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
   padding: 0.75rem;
 }
 
-.cartao--recomendada {
-  border-color: var(--cor-primaria);
-  box-shadow: 0 0 0 1px var(--cor-primaria);
+.card--recommended {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
 }
 
-.cartao__topo {
+.card__top {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 0.5rem;
 }
 
-.detalhe {
-  color: var(--cor-texto-suave);
+.detail {
+  color: var(--color-text-soft);
   font-size: 0.9rem;
   margin: 0.25rem 0;
 }
 
-.justificativa {
+.rationale {
   font-size: 0.85rem;
   font-style: italic;
-  color: var(--cor-texto-suave);
+  color: var(--color-text-soft);
 }
 
-.vazio {
-  color: var(--cor-texto-suave);
+.empty {
+  color: var(--color-text-soft);
   font-style: italic;
 }
 
@@ -317,20 +317,20 @@
 
 .source-badge--real {
   background: #e4f3ea;
-  color: var(--cor-real);
+  color: var(--color-real);
 }
 
-.source-badge--estimativa {
+.source-badge--estimate {
   background: #fbf0dc;
-  color: var(--cor-estimativa);
+  color: var(--color-estimate);
 }
 
 .source-badge--mock {
   background: #ece9e3;
-  color: var(--cor-mock);
+  color: var(--color-mock);
 }
 
-.itinerario {
+.itinerary {
   list-style: none;
   padding: 0;
   margin: 0.75rem 0 0;
@@ -339,28 +339,28 @@
   gap: 1rem;
 }
 
-.dia {
-  border: 1px solid var(--cor-borda);
-  border-radius: var(--raio);
+.day {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
   padding: 0.75rem 1rem;
 }
 
-.dia h3 {
+.day h3 {
   margin: 0 0 0.35rem;
   font-size: 1rem;
 }
 
-.bloco {
+.block {
   margin-top: 0.4rem;
   font-size: 0.92rem;
 }
 
-.bloco__titulo {
+.block__title {
   font-weight: 700;
   margin-right: 0.4rem;
 }
 
-.bloco ul {
+.block ul {
   margin: 0.2rem 0 0;
   padding-left: 1.2rem;
 }
@@ -374,22 +374,22 @@ table {
 table td,
 table th {
   padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid var(--cor-borda);
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
 
-.orcamento__total td {
+.budget__total td {
   font-weight: 700;
-  border-top: 2px solid var(--cor-texto);
+  border-top: 2px solid var(--color-text);
 }
 
-.dentro-teto {
-  color: var(--cor-sucesso);
+.within-cap {
+  color: var(--color-success);
   font-weight: 600;
 }
 
-.fora-teto {
-  color: var(--cor-alerta);
+.over-cap {
+  color: var(--color-alert);
   font-weight: 600;
 }
 
@@ -398,10 +398,10 @@ table th {
   padding-left: 1.2rem;
 }
 
-.rodape-legal {
+.legal-footer {
   margin-top: 1.5rem;
   padding-top: 0.75rem;
-  border-top: 1px solid var(--cor-borda);
+  border-top: 1px solid var(--color-border);
   font-size: 0.8rem;
-  color: var(--cor-texto-suave);
+  color: var(--color-text-soft);
 }

@@ -2,39 +2,39 @@ import { useState, type FormEvent } from 'react'
 import type { ChatMessage } from '../api/types'
 
 interface ChatProps {
-  mensagens: ChatMessage[]
-  aguardando: boolean
-  onEnviar: (texto: string) => void
+  messages: ChatMessage[]
+  waiting: boolean
+  onSend: (text: string) => void
 }
 
-export function Chat({ mensagens, aguardando, onEnviar }: ChatProps) {
-  const [texto, setTexto] = useState('')
+export function Chat({ messages, waiting, onSend }: ChatProps) {
+  const [text, setText] = useState('')
 
-  function handleSubmit(evento: FormEvent) {
-    evento.preventDefault()
-    const valor = texto.trim()
-    if (!valor || aguardando) return
-    onEnviar(valor)
-    setTexto('')
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault()
+    const value = text.trim()
+    if (!value || waiting) return
+    onSend(value)
+    setText('')
   }
 
   return (
     <section className="panel chat" aria-label="Conversa com o assistente">
       <h2>Converse com o assistente</h2>
-      <div className="chat__mensagens" aria-live="polite" role="log">
-        {mensagens.length === 0 && (
-          <p className="chat__vazio">
+      <div className="chat__messages" aria-live="polite" role="log">
+        {messages.length === 0 && (
+          <p className="chat__empty">
             Conte para onde você quer ir — destino, datas, quantas pessoas e o orçamento — e eu
             monto seu roteiro.
           </p>
         )}
-        {mensagens.map((m, i) => (
-          <div key={i} className={`chat__bolha chat__bolha--${m.autor}`}>
-            {m.texto}
+        {messages.map((m, i) => (
+          <div key={i} className={`chat__bubble chat__bubble--${m.author}`}>
+            {m.text}
           </div>
         ))}
-        {aguardando && (
-          <div className="chat__bolha chat__bolha--agente chat__bolha--carregando" aria-label="Assistente digitando">
+        {waiting && (
+          <div className="chat__bubble chat__bubble--agent chat__bubble--loading" aria-label="Assistente digitando">
             <span className="dot" />
             <span className="dot" />
             <span className="dot" />
@@ -48,12 +48,12 @@ export function Chat({ mensagens, aguardando, onEnviar }: ChatProps) {
         <input
           id="chat-input"
           type="text"
-          value={texto}
-          onChange={(e) => setTexto(e.target.value)}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
           placeholder="Ex.: Quero ir para Lisboa em outubro, 2 adultos e 1 criança"
-          disabled={aguardando}
+          disabled={waiting}
         />
-        <button type="submit" disabled={aguardando || !texto.trim()}>
+        <button type="submit" disabled={waiting || !text.trim()}>
           Enviar
         </button>
       </form>

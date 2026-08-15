@@ -4,60 +4,60 @@ import type { TripBrief, TripPlan } from './types'
 // passar pelo proxy do Vite: o http-proxy do Vite duplica o header
 // `Connection` em respostas chunked, o que quebra o streaming SSE no
 // Chromium. Em produção, aponte VITE_API_URL para a origem do backend.
-const ORIGEM_API = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:8000' : '')
-const API_BASE = `${ORIGEM_API}/api`
+const API_ORIGIN = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:8000' : '')
+const API_BASE = `${API_ORIGIN}/api`
 
-export interface SessaoResposta {
+export interface SessionResponse {
   session_id: string
-  ttl_minutos: number
+  ttl_minutes: number
 }
 
-export async function criarSessao(): Promise<SessaoResposta> {
+export async function createSession(): Promise<SessionResponse> {
   const resp = await fetch(`${API_BASE}/session`, { method: 'POST' })
   if (!resp.ok) throw new Error('Não foi possível criar a sessão.')
   return resp.json()
 }
 
-export async function obterBriefing(sessionId: string): Promise<TripBrief> {
+export async function getBrief(sessionId: string): Promise<TripBrief> {
   const resp = await fetch(`${API_BASE}/session/${sessionId}/brief`)
   if (!resp.ok) throw new Error('Não foi possível obter o briefing.')
   return resp.json()
 }
 
-export async function obterPlano(sessionId: string): Promise<TripPlan | null> {
+export async function getPlan(sessionId: string): Promise<TripPlan | null> {
   const resp = await fetch(`${API_BASE}/session/${sessionId}/plan`)
   if (resp.status === 409) return null
   if (!resp.ok) throw new Error('Não foi possível obter o plano.')
   return resp.json()
 }
 
-export function urlExportacao(sessionId: string, formato: 'md' | 'pdf'): string {
-  return `${API_BASE}/session/${sessionId}/export?format=${formato}`
+export function exportUrl(sessionId: string, format: 'md' | 'pdf'): string {
+  return `${API_BASE}/session/${sessionId}/export?format=${format}`
 }
 
-export type EventoChat =
-  | { evento: 'token'; dados: string }
-  | { evento: 'tool_call'; dados: { ferramenta: string; argumentos: Record<string, unknown> } }
-  | { evento: 'brief_update'; dados: TripBrief }
-  | { evento: 'plan_ready'; dados: TripPlan }
-  | { evento: 'error'; dados: { codigo: string; mensagem: string } }
-  | { evento: 'done'; dados: null }
+export type ChatEvent =
+  | { event: 'token'; data: string }
+  | { event: 'tool_call'; data: { tool: string; arguments: Record<string, unknown> } }
+  | { event: 'brief_update'; data: TripBrief }
+  | { event: 'plan_ready'; data: TripPlan }
+  | { event: 'error'; data: { code: string; message: string } }
+  | { event: 'done'; data: null }
 
 /** Faz o parsing de um único bloco SSE (linhas `event:`/`data:` separadas por
- * uma linha em branco) em `{ evento, dados }`. Função pura, extraída de
- * `enviarMensagem` para ser testável sem precisar simular um stream de
+ * uma linha em branco) em `{ event, data }`. Função pura, extraída de
+ * `sendMessage` para ser testável sem precisar simular um stream de
  * verdade — foi aqui que um bug real escapou (blocos separados por `\r\n\r\n`
  * eram ignorados por um parser que só reconhecia `\n\n`). */
-export function parseBlocoSSE(bloco: string): { evento: string; dados: unknown } | null {
-  let evento = 'message'
-  let dados = ''
-  for (const linha of bloco.split('\n')) {
-    if (linha.startsWith('event:')) evento = linha.slice(6).trim()
-    else if (linha.startsWith('data:')) dados += linha.slice(5).trim()
+export function parseSSEBlock(block: string): { event: string; data: unknown } | null {
+  let event = 'message'
+  let data = ''
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    else if (line.startsWith('data:')) data += line.slice(5).trim()
   }
-  if (!dados) return null
+  if (!data) return null
   try {
-    return { evento, dados: JSON.parse(dados) }
+    return { event, data: JSON.parse(data) }
   } catch {
     return null // bloco malformado (ex.: heartbeat/comentário SSE)
   }
@@ -65,14 +65,11 @@ export function parseBlocoSSE(bloco: string): { evento: string; dados: unknown }
 
 /** Consome o SSE de /api/chat (RF-06) manualmente via fetch, pois EventSource
  * nativo não suporta requisições POST com corpo. */
-export async function* enviarMensagem(
-  sessionId: string,
-  mensagem: string,
-): AsyncGenerator<EventoChat> {
+export async function* sendMessage(sessionId: string, message: string): AsyncGenerator<ChatEvent> {
   const resp = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, mensagem }),
+    body: JSON.stringify({ session_id: sessionId, message }),
   })
   if (!resp.ok || !resp.body) {
     throw new Error('Falha ao conectar ao chat.')
@@ -88,12 +85,12 @@ export async function* enviarMensagem(
     // Normaliza terminadores de linha: o servidor envia "\r\n" (padrão SSE).
     buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
 
-    let indiceSeparador: number
-    while ((indiceSeparador = buffer.indexOf('\n\n')) !== -1) {
-      const bloco = buffer.slice(0, indiceSeparador)
-      buffer = buffer.slice(indiceSeparador + 2)
-      const evento = parseBlocoSSE(bloco)
-      if (evento) yield evento as EventoChat
+    let separatorIndex: number
+    while ((separatorIndex = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, separatorIndex)
+      buffer = buffer.slice(separatorIndex + 2)
+      const event = parseSSEBlock(block)
+      if (event) yield event as ChatEvent
     }
   }
 }

@@ -1,163 +1,163 @@
-export type TipoFonte = 'real' | 'estimativa' | 'mock'
-export type NivelConfianca = 'alta' | 'media' | 'baixa'
+export type SourceType = 'real' | 'estimate' | 'mock'
+export type ConfidenceLevel = 'high' | 'medium' | 'low'
 
-export interface Fonte {
-  tipo: TipoFonte
-  provedor: string
+export interface Source {
+  type: SourceType
+  provider: string
   url: string | null
-  consultado_em: string
-  confianca: NivelConfianca
-  observacao: string | null
+  retrieved_at: string
+  confidence: ConfidenceLevel
+  note: string | null
 }
 
 export interface TripBrief {
-  origem: string | null
-  destino: string | null
-  data_ida: string | null
-  data_volta: string | null
-  mes_referencia: string | null
-  duracao_dias: number | null
-  datas_flexiveis: boolean
-  adultos: number | null
-  criancas_idades: number[]
-  orcamento_total: string | null
-  moeda_orcamento: string
-  moeda_exibicao: string
-  tolerancia_orcamento: number
-  tipo_viagem: string | null
-  interesses: string[]
-  restricoes_alimentares: string[]
-  restricoes_mobilidade: string | null
-  outras_restricoes: string[]
-  ritmo: 'leve' | 'moderado' | 'intenso'
-  nacionalidade: string | null
-  campos_inferidos: string[]
+  origin: string | null
+  destination: string | null
+  start_date: string | null
+  end_date: string | null
+  reference_month: string | null
+  duration_days: number | null
+  flexible_dates: boolean
+  adults: number | null
+  children_ages: number[]
+  total_budget: string | null
+  budget_currency: string
+  display_currency: string
+  budget_tolerance: number
+  trip_type: string | null
+  interests: string[]
+  dietary_restrictions: string[]
+  mobility_restrictions: string | null
+  other_restrictions: string[]
+  pace: 'light' | 'moderate' | 'intense'
+  nationality: string | null
+  inferred_fields: string[]
 }
 
-export interface Atividade {
-  titulo: string
-  descricao: string | null
-  regiao: string | null
-  duracao_min: number | null
-  custo_estimado: string
-  moeda: string
-  fonte: Fonte | null
-  horario: string | null
+export interface Activity {
+  title: string
+  description: string | null
+  region: string | null
+  duration_min: number | null
+  estimated_cost: string
+  currency: string
+  source: Source | null
+  time_of_day: string | null
 }
 
-export interface Deslocamento {
-  de_bloco: string
-  para_bloco: string
-  duracao_min: number
-  modo: string
+export interface Transfer {
+  from_block: string
+  to_block: string
+  duration_min: number
+  mode: string
 }
 
-export interface DiaItinerario {
-  dia: number
-  data: string | null
-  regiao: string
-  manha: Atividade[]
-  tarde: Atividade[]
-  noite: Atividade[]
-  deslocamentos: Deslocamento[]
-  custo_estimado_dia: string
-  observacao: string | null
+export interface ItineraryDay {
+  day: number
+  date: string | null
+  region: string
+  morning: Activity[]
+  afternoon: Activity[]
+  evening: Activity[]
+  transfers: Transfer[]
+  estimated_day_cost: string
+  note: string | null
 }
 
-export interface OpcaoVoo {
-  companhia: string
-  origem: string
-  destino: string
-  preco_min: string
-  preco_max: string
-  moeda: string
-  duracao_horas: number | null
-  escalas: number
+export interface FlightOption {
+  airline: string
+  origin: string
+  destination: string
+  min_price: string
+  max_price: string
+  currency: string
+  duration_hours: number | null
+  stops: number
   link: string | null
-  recomendada: boolean
-  justificativa: string | null
-  fonte: Fonte
+  recommended: boolean
+  rationale: string | null
+  source: Source
 }
 
-export interface OpcaoHospedagem {
-  nome: string
-  tipo: string
-  preco_por_noite: string
-  moeda: string
-  localizacao: string
-  avaliacao: number | null
+export interface AccommodationOption {
+  name: string
+  type: string
+  price_per_night: string
+  currency: string
+  location: string
+  rating: number | null
   link: string | null
-  recomendada: boolean
-  justificativa: string | null
-  fonte: Fonte
+  recommended: boolean
+  rationale: string | null
+  source: Source
 }
 
-export interface SugestaoRefeicao {
-  nome: string
-  tipo_refeicao: string
-  culinaria: string | null
-  faixa_preco: string | null
-  compatibilidade: string
-  localizacao: string | null
+export interface MealSuggestion {
+  name: string
+  meal_type: string
+  cuisine: string | null
+  price_range: string | null
+  compatibility: string
+  location: string | null
   link: string | null
-  fonte: Fonte
+  source: Source
 }
 
-export interface Orcamento {
-  voos: string
-  hospedagem: string
-  alimentacao: string
-  passeios: string
-  transporte_local: string
-  contingencia: string
+export interface Budget {
+  flights: string
+  accommodation: string
+  food: string
+  activities: string
+  local_transport: string
+  contingency: string
   total: string
-  teto_informado: string | null
-  diferenca: string | null
-  dentro_do_teto: boolean
-  alertas: string[]
-  fontes: Fonte[]
+  stated_cap: string | null
+  difference: string | null
+  within_cap: boolean
+  alerts: string[]
+  sources: Source[]
 }
 
-export interface CotacaoCambio {
-  moeda_origem: string
-  moeda_destino: string
-  taxa: string
-  fonte: Fonte
+export interface ExchangeRate {
+  source_currency: string
+  target_currency: string
+  rate: string
+  source: Source
 }
 
 export interface Checklist {
-  documentos: string[]
-  clima: string | null
-  moeda_e_cambio: string | null
-  tomada_adaptador: string | null
-  o_que_levar: string[]
-  requisitos_entrada: string[]
+  documents: string[]
+  weather: string | null
+  currency_and_exchange: string | null
+  power_outlet: string | null
+  what_to_pack: string[]
+  entry_requirements: string[]
 }
 
 export interface TripPlan {
   brief: TripBrief
-  resumo: string
-  opcoes_voo: OpcaoVoo[]
-  opcoes_hospedagem: OpcaoHospedagem[]
-  itinerario: DiaItinerario[]
-  refeicoes: SugestaoRefeicao[]
-  orcamento: Orcamento
-  cambio: CotacaoCambio | null
+  summary: string
+  flight_options: FlightOption[]
+  accommodation_options: AccommodationOption[]
+  itinerary: ItineraryDay[]
+  meals: MealSuggestion[]
+  budget: Budget
+  exchange_rate: ExchangeRate | null
   checklist: Checklist
-  fontes: Fonte[]
-  avisos: string[]
-  gerado_em: string
+  sources: Source[]
+  warnings: string[]
+  generated_at: string
 }
 
 export interface ChatMessage {
-  autor: 'usuario' | 'agente'
-  texto: string
+  author: 'user' | 'agent'
+  text: string
 }
 
-export interface ErroResposta {
-  erro: {
-    codigo: string
-    mensagem: string
-    recuperavel: boolean
+export interface ErrorResponse {
+  error: {
+    code: string
+    message: string
+    recoverable: boolean
   }
 }

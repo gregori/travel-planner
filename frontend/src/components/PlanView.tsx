@@ -1,82 +1,94 @@
-import type { Fonte, TripPlan } from '../api/types'
+import type { Source, TripPlan } from '../api/types'
 import { SourceBadge } from './SourceBadge'
 import { ExportButtons } from './ExportButtons'
 
-function fmt(valor: string, moeda: string) {
-  const n = Number(valor)
-  return `${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moeda}`
+function fmt(value: string, currency: string) {
+  const n = Number(value)
+  return `${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
 }
 
-function fmtData(iso: string) {
+function fmtDate(iso: string) {
   return new Date(iso).toLocaleString('pt-BR')
 }
 
-interface LinhaFonte {
+interface SourceRow {
   item: string
-  valor: string
-  fonte: Fonte
+  value: string
+  source: Source
 }
 
-/** Espelha `montar_linhas_fontes` do backend (app/export/markdown.py):
- * liga cada preço exibido à sua Fonte, em vez de listar `plan.fontes` "solta"
+/** Espelha `build_source_rows` do backend (app/export/markdown.py):
+ * liga cada preço exibido à sua Source, em vez de listar `plan.sources` "solta"
  * sem dizer a que item cada uma se refere (RF-32). */
-function montarLinhasFontes(plan: TripPlan): LinhaFonte[] {
-  const linhas: LinhaFonte[] = []
-  for (const v of plan.opcoes_voo) {
-    linhas.push({
-      item: `Voo ${v.companhia} (${v.origem} → ${v.destino})`,
-      valor: `${fmt(v.preco_min, v.moeda)} a ${fmt(v.preco_max, v.moeda)}`,
-      fonte: v.fonte,
+function buildSourceRows(plan: TripPlan): SourceRow[] {
+  const rows: SourceRow[] = []
+  for (const v of plan.flight_options) {
+    rows.push({
+      item: `Voo ${v.airline} (${v.origin} → ${v.destination})`,
+      value: `${fmt(v.min_price, v.currency)} a ${fmt(v.max_price, v.currency)}`,
+      source: v.source,
     })
   }
-  for (const h of plan.opcoes_hospedagem) {
-    linhas.push({ item: `Hospedagem: ${h.nome}`, valor: `${fmt(h.preco_por_noite, h.moeda)}/noite`, fonte: h.fonte })
+  for (const h of plan.accommodation_options) {
+    rows.push({
+      item: `Hospedagem: ${h.name}`,
+      value: `${fmt(h.price_per_night, h.currency)}/noite`,
+      source: h.source,
+    })
   }
-  for (const r of plan.refeicoes) {
-    linhas.push({ item: `Restaurante: ${r.nome}`, valor: r.faixa_preco ?? '—', fonte: r.fonte })
+  for (const r of plan.meals) {
+    rows.push({ item: `Restaurante: ${r.name}`, value: r.price_range ?? '—', source: r.source })
   }
-  for (const dia of plan.itinerario) {
-    for (const a of [...dia.manha, ...dia.tarde, ...dia.noite]) {
-      if (Number(a.custo_estimado) > 0 && a.fonte) {
-        linhas.push({ item: `Atividade: ${a.titulo} (dia ${dia.dia})`, valor: fmt(a.custo_estimado, a.moeda), fonte: a.fonte })
+  for (const day of plan.itinerary) {
+    for (const a of [...day.morning, ...day.afternoon, ...day.evening]) {
+      if (Number(a.estimated_cost) > 0 && a.source) {
+        rows.push({
+          item: `Atividade: ${a.title} (dia ${day.day})`,
+          value: fmt(a.estimated_cost, a.currency),
+          source: a.source,
+        })
       }
     }
   }
-  const moeda = plan.brief.moeda_exibicao
-  for (const f of plan.orcamento.fontes) {
-    const texto = (f.observacao ?? '').toLowerCase()
-    if (texto.includes('aliment')) {
-      linhas.push({ item: 'Alimentação (estimativa)', valor: fmt(plan.orcamento.alimentacao, moeda), fonte: f })
-    } else if (texto.includes('transporte')) {
-      linhas.push({ item: 'Transporte local (estimativa)', valor: fmt(plan.orcamento.transporte_local, moeda), fonte: f })
+  const currency = plan.brief.display_currency
+  for (const s of plan.budget.sources) {
+    const text = (s.note ?? '').toLowerCase()
+    if (text.includes('aliment')) {
+      rows.push({ item: 'Alimentação (estimativa)', value: fmt(plan.budget.food, currency), source: s })
+    } else if (text.includes('transporte')) {
+      rows.push({
+        item: 'Transporte local (estimativa)',
+        value: fmt(plan.budget.local_transport, currency),
+        source: s,
+      })
     } else {
-      linhas.push({ item: 'Estimativa heurística de orçamento', valor: '—', fonte: f })
+      rows.push({ item: 'Estimativa heurística de orçamento', value: '—', source: s })
     }
   }
-  if (plan.cambio) {
-    linhas.push({
-      item: `Câmbio ${plan.cambio.moeda_origem} → ${plan.cambio.moeda_destino}`,
-      valor: Number(plan.cambio.taxa).toFixed(4),
-      fonte: plan.cambio.fonte,
+  if (plan.exchange_rate) {
+    rows.push({
+      item: `Câmbio ${plan.exchange_rate.source_currency} → ${plan.exchange_rate.target_currency}`,
+      value: Number(plan.exchange_rate.rate).toFixed(4),
+      source: plan.exchange_rate.source,
     })
   }
-  return linhas
+  return rows
 }
 
 export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: string }) {
-  const moeda = plan.brief.moeda_exibicao
+  const currency = plan.brief.display_currency
 
   return (
     <section className="panel plan" aria-label="Roteiro de viagem">
-      <div className="plan__cabecalho">
+      <div className="plan__header">
         <h2>Seu roteiro</h2>
         <ExportButtons sessionId={sessionId} />
       </div>
-      <p className="plan__resumo">{plan.resumo}</p>
+      <p className="plan__summary">{plan.summary}</p>
 
-      {plan.avisos.length > 0 && (
-        <ul className="avisos" aria-label="Avisos do plano">
-          {plan.avisos.map((a, i) => (
+      {plan.warnings.length > 0 && (
+        <ul className="warnings" aria-label="Avisos do plano">
+          {plan.warnings.map((a, i) => (
             <li key={i}>⚠️ {a}</li>
           ))}
         </ul>
@@ -84,26 +96,26 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
 
       <details open>
         <summary>Opções de voo</summary>
-        {plan.opcoes_voo.length === 0 ? (
-          <p className="vazio">Informe a origem para estimarmos o preço dos voos.</p>
+        {plan.flight_options.length === 0 ? (
+          <p className="empty">Informe a origem para estimarmos o preço dos voos.</p>
         ) : (
-          <ul className="cartoes">
-            {plan.opcoes_voo.map((v, i) => (
-              <li key={i} className={`cartao ${v.recomendada ? 'cartao--recomendada' : ''}`}>
-                <div className="cartao__topo">
-                  <strong>{v.companhia}</strong>
-                  <SourceBadge fonte={v.fonte} />
+          <ul className="cards">
+            {plan.flight_options.map((v, i) => (
+              <li key={i} className={`card ${v.recommended ? 'card--recommended' : ''}`}>
+                <div className="card__top">
+                  <strong>{v.airline}</strong>
+                  <SourceBadge source={v.source} />
                 </div>
                 <p>
-                  {v.origem} → {v.destino} · {fmt(v.preco_min, v.moeda)} a {fmt(v.preco_max, v.moeda)}
+                  {v.origin} → {v.destination} · {fmt(v.min_price, v.currency)} a {fmt(v.max_price, v.currency)}
                 </p>
-                <p className="detalhe">{v.escalas === 0 ? 'Sem escalas' : `${v.escalas} escala(s)`}</p>
+                <p className="detail">{v.stops === 0 ? 'Sem escalas' : `${v.stops} escala(s)`}</p>
                 {v.link && (
                   <a href={v.link} target="_blank" rel="noreferrer">
                     Comparar preços
                   </a>
                 )}
-                {v.justificativa && <p className="justificativa">{v.justificativa}</p>}
+                {v.rationale && <p className="rationale">{v.rationale}</p>}
               </li>
             ))}
           </ul>
@@ -112,22 +124,22 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
 
       <details open>
         <summary>Opções de hospedagem</summary>
-        <ul className="cartoes">
-          {plan.opcoes_hospedagem.map((h, i) => (
-            <li key={i} className={`cartao ${h.recomendada ? 'cartao--recomendada' : ''}`}>
-              <div className="cartao__topo">
-                <strong>{h.nome}</strong>
-                <SourceBadge fonte={h.fonte} />
+        <ul className="cards">
+          {plan.accommodation_options.map((h, i) => (
+            <li key={i} className={`card ${h.recommended ? 'card--recommended' : ''}`}>
+              <div className="card__top">
+                <strong>{h.name}</strong>
+                <SourceBadge source={h.source} />
               </div>
               <p>
-                {h.tipo} · {fmt(h.preco_por_noite, h.moeda)}/noite · {h.localizacao}
+                {h.type} · {fmt(h.price_per_night, h.currency)}/noite · {h.location}
               </p>
               {h.link && (
                 <a href={h.link} target="_blank" rel="noreferrer">
                   Ver oferta
                 </a>
               )}
-              {h.justificativa && <p className="justificativa">{h.justificativa}</p>}
+              {h.rationale && <p className="rationale">{h.rationale}</p>}
             </li>
           ))}
         </ul>
@@ -135,34 +147,34 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
 
       <details open>
         <summary>Itinerário dia a dia</summary>
-        <ol className="itinerario">
-          {plan.itinerario.map((dia) => (
-            <li key={dia.dia} className="dia">
+        <ol className="itinerary">
+          {plan.itinerary.map((day) => (
+            <li key={day.day} className="day">
               <h3>
-                Dia {dia.dia}
-                {dia.data ? ` — ${dia.data}` : ''} · {dia.regiao}
+                Dia {day.day}
+                {day.date ? ` — ${day.date}` : ''} · {day.region}
               </h3>
-              {dia.observacao && <p className="detalhe">{dia.observacao}</p>}
-              {(['manha', 'tarde', 'noite'] as const).map((bloco) => (
-                <div key={bloco} className="bloco">
-                  <span className="bloco__titulo">
-                    {bloco === 'manha' ? 'Manhã' : bloco === 'tarde' ? 'Tarde' : 'Noite'}
+              {day.note && <p className="detail">{day.note}</p>}
+              {(['morning', 'afternoon', 'evening'] as const).map((block) => (
+                <div key={block} className="block">
+                  <span className="block__title">
+                    {block === 'morning' ? 'Manhã' : block === 'afternoon' ? 'Tarde' : 'Noite'}
                   </span>
-                  {dia[bloco].length === 0 ? (
-                    <span className="vazio">Livre</span>
+                  {day[block].length === 0 ? (
+                    <span className="empty">Livre</span>
                   ) : (
                     <ul>
-                      {dia[bloco].map((a, i) => (
+                      {day[block].map((a, i) => (
                         <li key={i}>
-                          {a.titulo}
-                          {Number(a.custo_estimado) > 0 && ` (${fmt(a.custo_estimado, a.moeda)})`}
+                          {a.title}
+                          {Number(a.estimated_cost) > 0 && ` (${fmt(a.estimated_cost, a.currency)})`}
                         </li>
                       ))}
                     </ul>
                   )}
                 </div>
               ))}
-              <p className="detalhe">Custo estimado do dia: {fmt(dia.custo_estimado_dia, moeda)}</p>
+              <p className="detail">Custo estimado do dia: {fmt(day.estimated_day_cost, currency)}</p>
             </li>
           ))}
         </ol>
@@ -170,20 +182,20 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
 
       <details open>
         <summary>Restaurantes sugeridos</summary>
-        {plan.refeicoes.length === 0 ? (
-          <p className="vazio">Nenhuma sugestão encontrada para os critérios informados.</p>
+        {plan.meals.length === 0 ? (
+          <p className="empty">Nenhuma sugestão encontrada para os critérios informados.</p>
         ) : (
-          <ul className="cartoes">
-            {plan.refeicoes.map((r, i) => (
-              <li key={i} className="cartao">
-                <div className="cartao__topo">
-                  <strong>{r.nome}</strong>
-                  <SourceBadge fonte={r.fonte} />
+          <ul className="cards">
+            {plan.meals.map((r, i) => (
+              <li key={i} className="card">
+                <div className="card__top">
+                  <strong>{r.name}</strong>
+                  <SourceBadge source={r.source} />
                 </div>
                 <p>
-                  {r.tipo_refeicao} · {r.culinaria ?? 'culinária variada'}
+                  {r.meal_type} · {r.cuisine ?? 'culinária variada'}
                 </p>
-                <p className="justificativa">{r.compatibilidade}</p>
+                <p className="rationale">{r.compatibility}</p>
               </li>
             ))}
           </ul>
@@ -192,86 +204,86 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
 
       <details open>
         <summary>Orçamento</summary>
-        <table className="orcamento">
+        <table className="budget">
           <tbody>
             <tr>
               <td>Voos</td>
-              <td>{fmt(plan.orcamento.voos, moeda)}</td>
+              <td>{fmt(plan.budget.flights, currency)}</td>
             </tr>
             <tr>
               <td>Hospedagem</td>
-              <td>{fmt(plan.orcamento.hospedagem, moeda)}</td>
+              <td>{fmt(plan.budget.accommodation, currency)}</td>
             </tr>
             <tr>
               <td>Alimentação (estimativa)</td>
-              <td>{fmt(plan.orcamento.alimentacao, moeda)}</td>
+              <td>{fmt(plan.budget.food, currency)}</td>
             </tr>
             <tr>
               <td>Passeios</td>
-              <td>{fmt(plan.orcamento.passeios, moeda)}</td>
+              <td>{fmt(plan.budget.activities, currency)}</td>
             </tr>
             <tr>
               <td>Transporte local (estimativa)</td>
-              <td>{fmt(plan.orcamento.transporte_local, moeda)}</td>
+              <td>{fmt(plan.budget.local_transport, currency)}</td>
             </tr>
             <tr>
               <td>Contingência</td>
-              <td>{fmt(plan.orcamento.contingencia, moeda)}</td>
+              <td>{fmt(plan.budget.contingency, currency)}</td>
             </tr>
-            <tr className="orcamento__total">
+            <tr className="budget__total">
               <td>Total</td>
-              <td>{fmt(plan.orcamento.total, moeda)}</td>
+              <td>{fmt(plan.budget.total, currency)}</td>
             </tr>
           </tbody>
         </table>
-        {plan.orcamento.teto_informado && (
-          <p className={plan.orcamento.dentro_do_teto ? 'dentro-teto' : 'fora-teto'}>
-            Teto informado: {fmt(plan.orcamento.teto_informado, moeda)} —{' '}
-            {plan.orcamento.dentro_do_teto ? 'dentro do teto' : 'acima do teto'}
+        {plan.budget.stated_cap && (
+          <p className={plan.budget.within_cap ? 'within-cap' : 'over-cap'}>
+            Teto informado: {fmt(plan.budget.stated_cap, currency)} —{' '}
+            {plan.budget.within_cap ? 'dentro do teto' : 'acima do teto'}
           </p>
         )}
-        {plan.orcamento.alertas.map((a, i) => (
-          <p key={i} className="avisos">
+        {plan.budget.alerts.map((a, i) => (
+          <p key={i} className="warnings">
             ⚠️ {a}
           </p>
         ))}
       </details>
 
-      {plan.cambio && (
+      {plan.exchange_rate && (
         <details>
           <summary>Câmbio</summary>
           <p>
-            1 {plan.cambio.moeda_origem} = {Number(plan.cambio.taxa).toFixed(4)} {plan.cambio.moeda_destino}{' '}
-            <SourceBadge fonte={plan.cambio.fonte} />
+            1 {plan.exchange_rate.source_currency} = {Number(plan.exchange_rate.rate).toFixed(4)}{' '}
+            {plan.exchange_rate.target_currency} <SourceBadge source={plan.exchange_rate.source} />
           </p>
-          <p className="detalhe">Consultado em {fmtData(plan.cambio.fonte.consultado_em)}</p>
+          <p className="detail">Consultado em {fmtDate(plan.exchange_rate.source.retrieved_at)}</p>
         </details>
       )}
 
       <details>
         <summary>Checklist prático</summary>
         <ul className="checklist">
-          {plan.checklist.documentos.map((d, i) => (
+          {plan.checklist.documents.map((d, i) => (
             <li key={`doc-${i}`}>{d}</li>
           ))}
         </ul>
-        {plan.checklist.requisitos_entrada.length > 0 && (
+        {plan.checklist.entry_requirements.length > 0 && (
           <>
             <h4>Requisitos de entrada</h4>
             <ul className="checklist">
-              {plan.checklist.requisitos_entrada.map((r, i) => (
+              {plan.checklist.entry_requirements.map((r, i) => (
                 <li key={i}>{r}</li>
               ))}
             </ul>
           </>
         )}
-        {plan.checklist.clima && <p>{plan.checklist.clima}</p>}
-        {plan.checklist.tomada_adaptador && <p>{plan.checklist.tomada_adaptador}</p>}
+        {plan.checklist.weather && <p>{plan.checklist.weather}</p>}
+        {plan.checklist.power_outlet && <p>{plan.checklist.power_outlet}</p>}
       </details>
 
       <details>
         <summary>Fontes e confiabilidade</summary>
-        <table className="fontes">
+        <table className="sources">
           <thead>
             <tr>
               <th>Item</th>
@@ -282,22 +294,22 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
             </tr>
           </thead>
           <tbody>
-            {montarLinhasFontes(plan).map((linha, i) => (
+            {buildSourceRows(plan).map((row, i) => (
               <tr key={i}>
-                <td>{linha.item}</td>
-                <td>{linha.valor}</td>
+                <td>{row.item}</td>
+                <td>{row.value}</td>
                 <td>
-                  <SourceBadge fonte={linha.fonte} />
+                  <SourceBadge source={row.source} />
                 </td>
-                <td>{linha.fonte.confianca}</td>
-                <td>{fmtData(linha.fonte.consultado_em)}</td>
+                <td>{row.source.confidence}</td>
+                <td>{fmtDate(row.source.retrieved_at)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </details>
 
-      <p className="rodape-legal">
+      <p className="legal-footer">
         Os preços apresentados são estimativas sujeitas a variação. Este sistema não realiza
         reservas nem processa pagamentos.
       </p>

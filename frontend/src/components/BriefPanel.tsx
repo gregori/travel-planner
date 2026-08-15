@@ -1,78 +1,78 @@
 import type { TripBrief } from '../api/types'
 
-const RÓTULOS_TIPO_VIAGEM: Record<string, string> = {
-  passeio: 'Passeio',
-  romantica: 'Romântica',
-  familia: 'Família',
-  aventura: 'Aventura',
+const TRIP_TYPE_LABELS: Record<string, string> = {
+  sightseeing: 'Passeio',
+  romantic: 'Romântica',
+  family: 'Família',
+  adventure: 'Aventura',
   cultural: 'Cultural',
-  descanso: 'Descanso',
+  relaxation: 'Descanso',
 }
 
-function Campo({ label, valor }: { label: string; valor: string | null | undefined }) {
-  if (!valor) return null
+function Field({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value) return null
   return (
     <div className="brief-field">
       <span className="brief-field__label">{label}</span>
-      <span className="brief-field__valor">{valor}</span>
+      <span className="brief-field__value">{value}</span>
     </div>
   )
 }
 
-/** RF-07: painel de briefing, atualizado a cada turno. Quando `compacto` é
+/** RF-07: painel de briefing, atualizado a cada turno. Quando `compact` é
  * true (plano já pronto), fica recolhido por padrão para não competir com o
  * roteiro, mas continua acessível e atualizado — não desaparece. */
-export function BriefPanel({ brief, compacto = false }: { brief: TripBrief; compacto?: boolean }) {
-  const periodo = brief.data_ida && brief.data_volta
-    ? `${brief.data_ida} → ${brief.data_volta}`
-    : brief.mes_referencia && brief.duracao_dias
-      ? `${brief.mes_referencia} · ${brief.duracao_dias} dia(s)`
+export function BriefPanel({ brief, compact = false }: { brief: TripBrief; compact?: boolean }) {
+  const period = brief.start_date && brief.end_date
+    ? `${brief.start_date} → ${brief.end_date}`
+    : brief.reference_month && brief.duration_days
+      ? `${brief.reference_month} · ${brief.duration_days} dia(s)`
       : null
 
-  const viajantes = brief.adultos || brief.criancas_idades.length
-    ? `${brief.adultos ?? '?'} adulto(s)` +
-      (brief.criancas_idades.length ? ` + ${brief.criancas_idades.length} criança(s)` : '')
+  const travelers = brief.adults || brief.children_ages.length
+    ? `${brief.adults ?? '?'} adulto(s)` +
+      (brief.children_ages.length ? ` + ${brief.children_ages.length} criança(s)` : '')
     : null
 
-  const faltantes = camposFaltantes(brief)
+  const missing = missingFields(brief)
 
-  const conteudo = (
+  const content = (
     <>
       <div className="brief-grid">
-        <Campo label="Origem" valor={brief.origem} />
-        <Campo label="Destino" valor={brief.destino} />
-        <Campo label="Período" valor={periodo} />
-        <Campo label="Viajantes" valor={viajantes} />
-        <Campo
+        <Field label="Origem" value={brief.origin} />
+        <Field label="Destino" value={brief.destination} />
+        <Field label="Período" value={period} />
+        <Field label="Viajantes" value={travelers} />
+        <Field
           label="Orçamento"
-          valor={brief.orcamento_total ? `${brief.orcamento_total} ${brief.moeda_orcamento}` : null}
+          value={brief.total_budget ? `${brief.total_budget} ${brief.budget_currency}` : null}
         />
-        <Campo label="Tipo de viagem" valor={brief.tipo_viagem ? RÓTULOS_TIPO_VIAGEM[brief.tipo_viagem] : null} />
-        <Campo label="Ritmo" valor={brief.ritmo} />
-        {brief.restricoes_alimentares.length > 0 && (
-          <Campo label="Restrições alimentares" valor={brief.restricoes_alimentares.join(', ')} />
+        <Field label="Tipo de viagem" value={brief.trip_type ? TRIP_TYPE_LABELS[brief.trip_type] : null} />
+        <Field label="Ritmo" value={brief.pace} />
+        {brief.dietary_restrictions.length > 0 && (
+          <Field label="Restrições alimentares" value={brief.dietary_restrictions.join(', ')} />
         )}
       </div>
 
-      {brief.campos_inferidos.length > 0 && (
-        <p className="brief-inferidos">
-          <strong>Inferido automaticamente:</strong> {brief.campos_inferidos.join(', ')}
+      {brief.inferred_fields.length > 0 && (
+        <p className="brief-inferred">
+          <strong>Inferido automaticamente:</strong> {brief.inferred_fields.join(', ')}
         </p>
       )}
 
-      {faltantes.length > 0 && (
-        <p className="brief-faltantes">
-          Ainda faltam: <strong>{faltantes.join(', ')}</strong>
+      {missing.length > 0 && (
+        <p className="brief-missing">
+          Ainda faltam: <strong>{missing.join(', ')}</strong>
         </p>
       )}
     </>
   )
 
-  if (compacto) {
+  if (compact) {
     return (
-      <details className="panel brief-panel--compacto" aria-label="Resumo da viagem">
+      <details className="panel brief-panel--compact" aria-label="Resumo da viagem">
         <summary>Seu briefing</summary>
-        {conteudo}
+        {content}
       </details>
     )
   }
@@ -80,18 +80,18 @@ export function BriefPanel({ brief, compacto = false }: { brief: TripBrief; comp
   return (
     <section className="panel" aria-label="Resumo da viagem">
       <h2>Seu briefing</h2>
-      {conteudo}
+      {content}
     </section>
   )
 }
 
-function camposFaltantes(brief: TripBrief): string[] {
-  const faltantes: string[] = []
-  if (!brief.destino) faltantes.push('destino')
-  const temDatas = brief.data_ida && brief.data_volta
-  const temMes = brief.mes_referencia && brief.duracao_dias
-  if (!temDatas && !temMes) faltantes.push('datas (ou mês + duração)')
-  if (brief.adultos === null) faltantes.push('número de viajantes')
-  if (!brief.orcamento_total) faltantes.push('orçamento')
-  return faltantes
+function missingFields(brief: TripBrief): string[] {
+  const missing: string[] = []
+  if (!brief.destination) missing.push('destino')
+  const hasDates = brief.start_date && brief.end_date
+  const hasMonth = brief.reference_month && brief.duration_days
+  if (!hasDates && !hasMonth) missing.push('datas (ou mês + duração)')
+  if (brief.adults === null) missing.push('número de viajantes')
+  if (!brief.total_budget) missing.push('orçamento')
+  return missing
 }
