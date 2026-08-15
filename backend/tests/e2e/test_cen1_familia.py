@@ -3,6 +3,8 @@ import pytest
 from app.agent.loop import processar_mensagem
 from app.agent.tools import AgentContext
 from app.config import Settings
+from app.export.markdown import gerar_markdown
+from app.export.pdf import gerar_pdf_bytes
 from app.llm.base import LLMResponse, ToolCall
 from app.llm.fake import FakeLLM
 from app.providers.registry import ProviderRegistry
@@ -92,3 +94,13 @@ async def test_cen1_familia_internacional_ponta_a_ponta(settings: Settings, regi
 
     for item in plano.opcoes_voo + plano.opcoes_hospedagem + plano.refeicoes:
         assert item.fonte is not None  # RF-15 / regra invariante §7.3
+
+    # RF-30/31/32/33: exportação em Markdown e PDF com seção de fontes e aviso legal.
+    markdown = gerar_markdown(plano)
+    assert "## Fontes e confiabilidade" in markdown
+    assert "não realiza reservas" in markdown
+    assert "Lisboa" in markdown
+
+    pdf_bytes = gerar_pdf_bytes(plano)
+    assert pdf_bytes[:4] == b"%PDF"
+    assert len(pdf_bytes) > 1000

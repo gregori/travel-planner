@@ -1,3 +1,4 @@
+from app.models.common import Fonte
 from app.models.plan import TripPlan
 
 AVISO_RODAPE = (
@@ -11,9 +12,51 @@ def _fmt_moeda(valor, moeda: str) -> str:
     return f"{valor:.2f} {moeda}"
 
 
+def montar_linhas_fontes(plan: TripPlan) -> list[tuple[str, str, Fonte]]:
+    """Constrói a lista (item, valor, Fonte) para a seção "Fontes e
+    confiabilidade" (RF-32), ligando cada preço à sua origem — em vez de
+    depender só de `plan.fontes` "achatada", que não diz a que preço cada
+    fonte se refere."""
+    linhas: list[tuple[str, str, Fonte]] = []
+    for v in plan.opcoes_voo:
+        valor = f"{_fmt_moeda(v.preco_min, v.moeda)} a {_fmt_moeda(v.preco_max, v.moeda)}"
+        linhas.append((f"Voo {v.companhia} ({v.origem} → {v.destino})", valor, v.fonte))
+    for h in plan.opcoes_hospedagem:
+        linhas.append((f"Hospedagem: {h.nome}", f"{_fmt_moeda(h.preco_por_noite, h.moeda)}/noite", h.fonte))
+    for r in plan.refeicoes:
+        linhas.append((f"Restaurante: {r.nome}", r.faixa_preco or "—", r.fonte))
+    for dia in plan.itinerario:
+        for a in dia.manha + dia.tarde + dia.noite:
+            if a.custo_estimado > 0 and a.fonte:
+                linhas.append(
+                    (f"Atividade: {a.titulo} (dia {dia.dia})", _fmt_moeda(a.custo_estimado, a.moeda), a.fonte)
+                )
+    moeda_exibicao = plan.brief.moeda_exibicao
+    for fonte in plan.orcamento.fontes:
+        texto = (fonte.observacao or "").lower()
+        if "aliment" in texto:
+            rotulo = f"Alimentação (estimativa): {_fmt_moeda(plan.orcamento.alimentacao, moeda_exibicao)}"
+        elif "transporte" in texto:
+            valor = _fmt_moeda(plan.orcamento.transporte_local, moeda_exibicao)
+            rotulo = f"Transporte local (estimativa): {valor}"
+        else:
+            rotulo = "Estimativa heurística de orçamento"
+        linhas.append((rotulo, "—", fonte))
+    if plan.cambio:
+        linhas.append(
+            (
+                f"Câmbio {plan.cambio.moeda_origem} → {plan.cambio.moeda_destino}",
+                f"{plan.cambio.taxa:.4f}",
+                plan.cambio.fonte,
+            )
+        )
+    return linhas
+
+
 def gerar_markdown(plan: TripPlan) -> str:
     """Gera o plano completo em Markdown autocontido (RF-30, RF-32, RF-33)."""
     brief = plan.brief
+    moeda = brief.moeda_exibicao
     linhas: list[str] = []
 
     linhas.append(f"# Roteiro de viagem — {brief.destino}")
@@ -33,10 +76,11 @@ def gerar_markdown(plan: TripPlan) -> str:
     if plan.opcoes_voo:
         for v in plan.opcoes_voo:
             marca = " ⭐ recomendada" if v.recomendada else ""
+            link = f" — [comparar preços]({v.link})" if v.link else ""
             linhas.append(
                 f"- **{v.companhia}**{marca} — {v.origem} → {v.destino}: "
                 f"{_fmt_moeda(v.preco_min, v.moeda)} a {_fmt_moeda(v.preco_max, v.moeda)} "
-                f"({v.escalas} escala(s)) — *{v.fonte.tipo}*"
+                f"({v.escalas} escala(s)){link} — *{v.fonte.tipo}*"
             )
             if v.justificativa:
                 linhas.append(f"  - {v.justificativa}")
@@ -69,13 +113,13 @@ def gerar_markdown(plan: TripPlan) -> str:
             linhas.append(f"**{bloco_nome}:**")
             if bloco:
                 for a in bloco:
-                    custo = f" (R$ {a.custo_estimado:.2f})" if a.custo_estimado else ""
+                    custo = f" ({_fmt_moeda(a.custo_estimado, a.moeda)})" if a.custo_estimado else ""
                     linhas.append(f"- {a.titulo}{custo}")
                     if a.descricao:
                         linhas.append(f"  - {a.descricao}")
             else:
                 linhas.append("- _Bloco livre_")
-        linhas.append(f"_Custo estimado do dia: R$ {dia.custo_estimado_dia:.2f}_")
+        linhas.append(f"_Custo estimado do dia: {_fmt_moeda(dia.custo_estimado_dia, moeda)}_")
         linhas.append("")
 
     linhas.append("## Restaurantes sugeridos")
@@ -91,13 +135,13 @@ def gerar_markdown(plan: TripPlan) -> str:
 
     o = plan.orcamento
     linhas.append("## Orçamento detalhado")
-    linhas.append(f"| Categoria | Valor ({brief.moeda_exibicao}) |")
+    linhas.append(f"| Categoria | Valor ({moeda}) |")
     linhas.append("|---|---|")
     linhas.append(f"| Voos | {o.voos:.2f} |")
     linhas.append(f"| Hospedagem | {o.hospedagem:.2f} |")
-    linhas.append(f"| Alimentação | {o.alimentacao:.2f} |")
+    linhas.append(f"| Alimentação (estimativa) | {o.alimentacao:.2f} |")
     linhas.append(f"| Passeios | {o.passeios:.2f} |")
-    linhas.append(f"| Transporte local | {o.transporte_local:.2f} |")
+    linhas.append(f"| Transporte local (estimativa) | {o.transporte_local:.2f} |")
     linhas.append(f"| Contingência | {o.contingencia:.2f} |")
     linhas.append(f"| **Total** | **{o.total:.2f}** |")
     if o.teto_informado is not None:
@@ -135,11 +179,11 @@ def gerar_markdown(plan: TripPlan) -> str:
     linhas.append("")
 
     linhas.append("## Fontes e confiabilidade")
-    linhas.append("| Item | Tipo | Provedor | Confiança | Consultado em |")
+    linhas.append("| Item | Valor | Tipo | Confiança | Consultado em |")
     linhas.append("|---|---|---|---|---|")
-    for f in plan.fontes:
+    for item, valor, f in montar_linhas_fontes(plan):
         linhas.append(
-            f"| {f.observacao or f.provedor} | {f.tipo} | {f.provedor} | {f.confianca} | "
+            f"| {item} | {valor} | {f.tipo} | {f.confianca} | "
             f"{f.consultado_em.strftime('%d/%m/%Y %H:%M UTC')} |"
         )
     linhas.append("")

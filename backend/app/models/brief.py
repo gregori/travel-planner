@@ -1,8 +1,8 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 TipoViagem = Literal["passeio", "romantica", "familia", "aventura", "cultural", "descanso"]
 Ritmo = Literal["leve", "moderado", "intenso"]
@@ -21,7 +21,9 @@ class TripBrief(BaseModel):
     mes_referencia: str | None = None
     duracao_dias: int | None = None
     datas_flexiveis: bool = False
-    adultos: int = 1
+    # None = ainda não informado pelo usuário (RF-02); só assume 1 adulto
+    # como inferência explícita no momento de planejar (RF-05).
+    adultos: int | None = None
     criancas_idades: list[int] = Field(default_factory=list)
     orcamento_total: Decimal | None = None
     moeda_orcamento: str = "BRL"
@@ -38,7 +40,7 @@ class TripBrief(BaseModel):
 
     @property
     def total_viajantes(self) -> int:
-        return self.adultos + len(self.criancas_idades)
+        return (self.adultos or 0) + len(self.criancas_idades)
 
     @property
     def tem_criancas(self) -> bool:
@@ -51,7 +53,7 @@ class TripBrief(BaseModel):
             faltantes.append("destino")
         if not (self.data_ida and self.data_volta) and not (self.mes_referencia and self.duracao_dias):
             faltantes.append("datas (ou mês + duração)")
-        if self.total_viajantes < 1:
+        if self.adultos is None:
             faltantes.append("número de viajantes")
         if self.orcamento_total is None:
             faltantes.append("orçamento")
@@ -66,7 +68,13 @@ class TripBrief(BaseModel):
         return self.duracao_dias
 
     def merge(self, **campos_parciais) -> "TripBrief":
-        """Atualiza o briefing com campos parciais, preservando os já definidos."""
+        """Atualiza o briefing com campos parciais, preservando os já definidos.
+
+        RF-04: quando `duracao_dias` é alterado explicitamente sem novas datas
+        exatas no mesmo turno, a `data_volta` antiga (que teria prioridade em
+        `duracao_estimada`) é invalidada para que a nova duração realmente
+        seja usada no recálculo do plano.
+        """
         atualizados = self.model_dump()
         for chave, valor in campos_parciais.items():
             if valor is None:
@@ -74,8 +82,29 @@ class TripBrief(BaseModel):
             if chave not in atualizados:
                 continue
             atualizados[chave] = valor
+
+        duracao_mudou = "duracao_dias" in campos_parciais and campos_parciais["duracao_dias"] is not None
+        datas_novas = "data_ida" in campos_parciais or "data_volta" in campos_parciais
+        if duracao_mudou and not datas_novas:
+            data_ida = atualizados.get("data_ida")
+            if data_ida:
+                if isinstance(data_ida, str):
+                    data_ida = date.fromisoformat(data_ida)
+                atualizados["data_volta"] = data_ida + timedelta(days=campos_parciais["duracao_dias"] - 1)
+            else:
+                atualizados["data_volta"] = None
+
         return TripBrief(**atualizados)
 
-    @model_validator(mode="after")
-    def _valida_ritmo_com_criancas(self) -> "TripBrief":
+    def com_inferencias_padrao(self) -> "TripBrief":
+        """Aplica inferências determinísticas de ritmo quando o usuário não
+        declarou (RF-05, RF-22): viagens com crianças ou mobilidade reduzida
+        assumem ritmo leve por padrão."""
+        precisa_ritmo_leve = self.tem_criancas or bool(self.restricoes_mobilidade)
+        ja_inferido = "ritmo" in self.campos_inferidos
+        if precisa_ritmo_leve and self.ritmo == "moderado" and not ja_inferido:
+            atualizados = self.model_dump()
+            atualizados["ritmo"] = "leve"
+            atualizados["campos_inferidos"] = [*self.campos_inferidos, "ritmo"]
+            return TripBrief(**atualizados)
         return self

@@ -191,6 +191,20 @@
   color: var(--cor-texto-suave);
 }
 
+.brief-panel--compacto {
+  padding: 0.75rem 1.25rem;
+}
+
+.brief-panel--compacto summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.brief-panel--compacto .brief-grid {
+  margin-top: 0.75rem;
+}
+
 /* Plan view */
 .plan__cabecalho {
   display: flex;

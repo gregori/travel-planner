@@ -1,10 +1,66 @@
-import type { TripPlan } from '../api/types'
+import type { Fonte, TripPlan } from '../api/types'
 import { SourceBadge } from './SourceBadge'
 import { ExportButtons } from './ExportButtons'
 
 function fmt(valor: string, moeda: string) {
   const n = Number(valor)
   return `${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moeda}`
+}
+
+function fmtData(iso: string) {
+  return new Date(iso).toLocaleString('pt-BR')
+}
+
+interface LinhaFonte {
+  item: string
+  valor: string
+  fonte: Fonte
+}
+
+/** Espelha `montar_linhas_fontes` do backend (app/export/markdown.py):
+ * liga cada preço exibido à sua Fonte, em vez de listar `plan.fontes` "solta"
+ * sem dizer a que item cada uma se refere (RF-32). */
+function montarLinhasFontes(plan: TripPlan): LinhaFonte[] {
+  const linhas: LinhaFonte[] = []
+  for (const v of plan.opcoes_voo) {
+    linhas.push({
+      item: `Voo ${v.companhia} (${v.origem} → ${v.destino})`,
+      valor: `${fmt(v.preco_min, v.moeda)} a ${fmt(v.preco_max, v.moeda)}`,
+      fonte: v.fonte,
+    })
+  }
+  for (const h of plan.opcoes_hospedagem) {
+    linhas.push({ item: `Hospedagem: ${h.nome}`, valor: `${fmt(h.preco_por_noite, h.moeda)}/noite`, fonte: h.fonte })
+  }
+  for (const r of plan.refeicoes) {
+    linhas.push({ item: `Restaurante: ${r.nome}`, valor: r.faixa_preco ?? '—', fonte: r.fonte })
+  }
+  for (const dia of plan.itinerario) {
+    for (const a of [...dia.manha, ...dia.tarde, ...dia.noite]) {
+      if (Number(a.custo_estimado) > 0 && a.fonte) {
+        linhas.push({ item: `Atividade: ${a.titulo} (dia ${dia.dia})`, valor: fmt(a.custo_estimado, a.moeda), fonte: a.fonte })
+      }
+    }
+  }
+  const moeda = plan.brief.moeda_exibicao
+  for (const f of plan.orcamento.fontes) {
+    const texto = (f.observacao ?? '').toLowerCase()
+    if (texto.includes('aliment')) {
+      linhas.push({ item: 'Alimentação (estimativa)', valor: fmt(plan.orcamento.alimentacao, moeda), fonte: f })
+    } else if (texto.includes('transporte')) {
+      linhas.push({ item: 'Transporte local (estimativa)', valor: fmt(plan.orcamento.transporte_local, moeda), fonte: f })
+    } else {
+      linhas.push({ item: 'Estimativa heurística de orçamento', valor: '—', fonte: f })
+    }
+  }
+  if (plan.cambio) {
+    linhas.push({
+      item: `Câmbio ${plan.cambio.moeda_origem} → ${plan.cambio.moeda_destino}`,
+      valor: Number(plan.cambio.taxa).toFixed(4),
+      fonte: plan.cambio.fonte,
+    })
+  }
+  return linhas
 }
 
 export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: string }) {
@@ -42,6 +98,11 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
                   {v.origem} → {v.destino} · {fmt(v.preco_min, v.moeda)} a {fmt(v.preco_max, v.moeda)}
                 </p>
                 <p className="detalhe">{v.escalas === 0 ? 'Sem escalas' : `${v.escalas} escala(s)`}</p>
+                {v.link && (
+                  <a href={v.link} target="_blank" rel="noreferrer">
+                    Comparar preços
+                  </a>
+                )}
                 {v.justificativa && <p className="justificativa">{v.justificativa}</p>}
               </li>
             ))}
@@ -94,7 +155,7 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
                       {dia[bloco].map((a, i) => (
                         <li key={i}>
                           {a.titulo}
-                          {Number(a.custo_estimado) > 0 && ` (${fmt(a.custo_estimado, moeda)})`}
+                          {Number(a.custo_estimado) > 0 && ` (${fmt(a.custo_estimado, a.moeda)})`}
                         </li>
                       ))}
                     </ul>
@@ -142,7 +203,7 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
               <td>{fmt(plan.orcamento.hospedagem, moeda)}</td>
             </tr>
             <tr>
-              <td>Alimentação</td>
+              <td>Alimentação (estimativa)</td>
               <td>{fmt(plan.orcamento.alimentacao, moeda)}</td>
             </tr>
             <tr>
@@ -150,7 +211,7 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
               <td>{fmt(plan.orcamento.passeios, moeda)}</td>
             </tr>
             <tr>
-              <td>Transporte local</td>
+              <td>Transporte local (estimativa)</td>
               <td>{fmt(plan.orcamento.transporte_local, moeda)}</td>
             </tr>
             <tr>
@@ -180,9 +241,10 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
         <details>
           <summary>Câmbio</summary>
           <p>
-            1 {plan.cambio.moeda_origem} = {Number(plan.cambio.taxa).toFixed(4)} {plan.cambio.moeda_destino}
+            1 {plan.cambio.moeda_origem} = {Number(plan.cambio.taxa).toFixed(4)} {plan.cambio.moeda_destino}{' '}
             <SourceBadge fonte={plan.cambio.fonte} />
           </p>
+          <p className="detalhe">Consultado em {fmtData(plan.cambio.fonte.consultado_em)}</p>
         </details>
       )}
 
@@ -213,18 +275,22 @@ export function PlanView({ plan, sessionId }: { plan: TripPlan; sessionId: strin
           <thead>
             <tr>
               <th>Item</th>
+              <th>Valor</th>
               <th>Tipo</th>
               <th>Confiança</th>
+              <th>Consultado em</th>
             </tr>
           </thead>
           <tbody>
-            {plan.fontes.map((f, i) => (
+            {montarLinhasFontes(plan).map((linha, i) => (
               <tr key={i}>
-                <td>{f.observacao ?? f.provedor}</td>
+                <td>{linha.item}</td>
+                <td>{linha.valor}</td>
                 <td>
-                  <SourceBadge fonte={f} />
+                  <SourceBadge fonte={linha.fonte} />
                 </td>
-                <td>{f.confianca}</td>
+                <td>{linha.fonte.confianca}</td>
+                <td>{fmtData(linha.fonte.consultado_em)}</td>
               </tr>
             ))}
           </tbody>

@@ -53,6 +53,28 @@ async def test_gerar_plano_cenario_familia_lisboa(settings, registry: ProviderRe
     for refeicao in plano.refeicoes:
         assert "glúten" in refeicao.compatibilidade.lower() or "Atende" in refeicao.compatibilidade
 
+    # RF-13: passeios em Lisboa são cotados em EUR nas fixtures; o custo
+    # exibido no itinerário e no orçamento deve estar convertido para BRL,
+    # não ser o valor cru em euros.
+    atividades_com_custo = [
+        a for dia in plano.itinerario for a in dia.manha + dia.tarde + dia.noite if a.custo_estimado > 0
+    ]
+    assert atividades_com_custo, "cenário deveria ter ao menos uma atividade paga"
+    for a in atividades_com_custo:
+        assert a.moeda == "BRL"
+    # Torre de Belém custa 6 EUR na fixture; convertido (taxa mock 6.10)
+    # deveria estar na casa de dezenas de reais, não continuar "6".
+    torre_belem = next((a for a in atividades_com_custo if "Torre de Belém" in a.titulo), None)
+    if torre_belem is not None:
+        assert torre_belem.custo_estimado > Decimal("6")
+
+    # RF-15/§7.3: toda atividade com custo tem Fonte (validado no próprio
+    # modelo — aqui confirmamos que o plano realmente carrega Fonte nas
+    # categorias heurísticas do orçamento).
+    assert plano.orcamento.fontes
+    for a in atividades_com_custo:
+        assert a.fonte is not None
+
 
 @pytest.mark.asyncio
 async def test_gerar_plano_domestico_sem_cambio(settings, registry: ProviderRegistry):
@@ -74,3 +96,35 @@ async def test_gerar_plano_domestico_sem_cambio(settings, registry: ProviderRegi
     assert plano.cambio is None
     assert not plano.checklist.requisitos_entrada
     assert plano.orcamento.alertas  # orçamento apertado deve estourar e gerar alerta (RF-26)
+
+
+@pytest.mark.asyncio
+async def test_provedor_vazio_sem_motivo_ainda_declara_lacuna(settings, registry: ProviderRegistry):
+    """RNF-02: mesmo se um provedor devolver lista vazia sem `motivo_vazio`
+    preenchido, o plano precisa declarar a lacuna — nunca ficar em silêncio
+    com custo zero como se não houvesse nada para contar."""
+    from app.providers.base import ResultadoBusca
+
+    class HospedagemVazia:
+        async def buscar(self, criterios):
+            return ResultadoBusca(itens=[], motivo_vazio=None)
+
+    registry._hospedagem_mock = HospedagemVazia()
+
+    store = SessionStore(ttl_minutos=60)
+    estado = store.criar()
+    estado.brief = TripBrief(
+        origem="São Paulo",
+        destino="Lisboa",
+        mes_referencia="outubro",
+        duracao_dias=3,
+        adultos=1,
+        orcamento_total=Decimal("5000"),
+    )
+    ctx = AgentContext(sessao=estado, registry=registry, settings=settings)
+
+    plano = await gerar_plano(ctx)
+
+    assert plano.opcoes_hospedagem == []
+    assert plano.orcamento.hospedagem == Decimal("0")
+    assert any("hospedagem" in a.lower() or "Lisboa" in a for a in plano.avisos)

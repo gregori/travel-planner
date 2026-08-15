@@ -18,7 +18,7 @@ export interface TripBrief {
   mes_referencia: string | null
   duracao_dias: number | null
   datas_flexiveis: boolean
-  adultos: number
+  adultos: number | null
   criancas_idades: number[]
   orcamento_total: string | null
   moeda_orcamento: string
@@ -40,6 +40,7 @@ export interface Atividade {
   regiao: string | null
   duracao_min: number | null
   custo_estimado: string
+  moeda: string
   fonte: Fonte | null
   horario: string | null
 }
@@ -72,6 +73,7 @@ export interface OpcaoVoo {
   moeda: string
   duracao_horas: number | null
   escalas: number
+  link: string | null
   recomendada: boolean
   justificativa: string | null
   fonte: Fonte
@@ -113,6 +115,7 @@ export interface Orcamento {
   diferenca: string | null
   dentro_do_teto: boolean
   alertas: string[]
+  fontes: Fonte[]
 }
 
 export interface CotacaoCambio {

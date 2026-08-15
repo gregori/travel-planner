@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, model_validator
@@ -13,8 +13,16 @@ class Atividade(BaseModel):
     regiao: str | None = None
     duracao_min: int | None = None
     custo_estimado: Decimal = Decimal("0")
+    moeda: str = "BRL"
     fonte: Fonte | None = None
     horario: time | None = None
+
+    @model_validator(mode="after")
+    def _custo_exige_fonte(self) -> "Atividade":
+        """RF-15/RNF-01: todo item com custo > 0 precisa referenciar uma Fonte."""
+        if self.custo_estimado > 0 and self.fonte is None:
+            raise ValueError(f"Atividade '{self.titulo}' tem custo > 0 mas nenhuma Fonte")
+        return self
 
 
 class Deslocamento(BaseModel):
@@ -45,6 +53,7 @@ class OpcaoVoo(BaseModel):
     moeda: str
     duracao_horas: float | None = None
     escalas: int = 0
+    link: str | None = None
     recomendada: bool = False
     justificativa: str | None = None
     fonte: Fonte
@@ -86,6 +95,10 @@ class Orcamento(BaseModel):
     diferenca: Decimal | None = None
     dentro_do_teto: bool = True
     alertas: list[str] = Field(default_factory=list)
+    # RF-15/§7.3: categorias heurísticas (ex.: alimentação, transporte local)
+    # não vêm de um item individual com Fonte própria — a proveniência da
+    # estimativa é declarada aqui para que nenhum valor fique sem origem.
+    fontes: list[Fonte] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _calcula_total_e_diferenca(self) -> "Orcamento":
@@ -101,6 +114,17 @@ class Orcamento(BaseModel):
         if self.teto_informado is not None:
             self.diferenca = soma - self.teto_informado
             self.dentro_do_teto = self.diferenca <= 0
+        return self
+
+    @model_validator(mode="after")
+    def _categorias_com_valor_exigem_fonte(self) -> "Orcamento":
+        """RF-15/RNF-01: nenhuma categoria com valor > 0 pode ficar sem
+        proveniência declarada. Voos/hospedagem/passeios já carregam Fonte
+        nos itens de origem (validado em Atividade/OpcaoVoo/OpcaoHospedagem);
+        alimentação e transporte local são heurísticas e precisam de uma
+        Fonte própria em `fontes`."""
+        if (self.alimentacao > 0 or self.transporte_local > 0) and not self.fontes:
+            raise ValueError("Orçamento com alimentação/transporte > 0 precisa de ao menos uma Fonte")
         return self
 
 
@@ -132,18 +156,4 @@ class TripPlan(BaseModel):
     checklist: Checklist = Field(default_factory=Checklist)
     fontes: list[Fonte] = Field(default_factory=list)
     avisos: list[str] = Field(default_factory=list)
-    gerado_em: datetime = Field(default_factory=datetime.utcnow)
-
-    @model_validator(mode="after")
-    def _valida_regra_invariante_de_fonte(self) -> "TripPlan":
-        """Todo campo monetário exibido deve referenciar uma Fonte (RF-15, §7.3)."""
-        for voo in self.opcoes_voo:
-            if voo.fonte is None:
-                raise ValueError("OpcaoVoo sem Fonte: plano inválido")
-        for hosp in self.opcoes_hospedagem:
-            if hosp.fonte is None:
-                raise ValueError("OpcaoHospedagem sem Fonte: plano inválido")
-        for ref in self.refeicoes:
-            if ref.fonte is None:
-                raise ValueError("SugestaoRefeicao sem Fonte: plano inválido")
-        return self
+    gerado_em: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from app.geo import moeda_do_destino
 from app.models.common import Fonte
 from app.models.plan import Atividade, CotacaoCambio, OpcaoHospedagem, OpcaoVoo, SugestaoRefeicao
 from app.providers.base import (
@@ -111,6 +112,7 @@ class MockAtracoesProvider:
                 r for r in registros if interesses.intersection({i.lower() for i in r.get("interesses", [])})
             ]
             registros = filtrados or registros
+        moeda = moeda_do_destino(criterios.cidade)
         itens = [
             Atividade(
                 titulo=r["titulo"],
@@ -118,7 +120,8 @@ class MockAtracoesProvider:
                 regiao=r.get("regiao"),
                 duracao_min=r.get("duracao_min"),
                 custo_estimado=Decimal(str(r.get("custo_estimado", 0))),
-                fonte=_fonte_mock(),
+                moeda=moeda,
+                fonte=_fonte_mock() if r.get("custo_estimado", 0) else None,
             )
             for r in registros
         ]
@@ -236,23 +239,31 @@ class WebFlightEstimatorMock:
             confianca="media" if chave in self._dados else "baixa",
             observacao="Estimativa por pesquisa web/histórico de rota; faixa, não valor fechado.",
         )
-        opcoes = [
-            OpcaoVoo(
-                companhia=cia,
-                origem=criterios.origem,
-                destino=criterios.destino,
-                preco_min=Decimal(str(registro["preco_min"])),
-                preco_max=Decimal(str(registro["preco_max"])),
-                moeda=registro["moeda"],
-                duracao_horas=registro.get("duracao_horas"),
-                escalas=registro.get("escalas", 0),
-                fonte=fonte,
+        preco_min_base = Decimal(str(registro["preco_min"]))
+        preco_max_base = Decimal(str(registro["preco_max"]))
+        opcoes = []
+        for indice, cia in enumerate(registro["companhias"]):
+            # Variação determinística por companhia (evita preços idênticos
+            # entre opções, mantendo o resultado reproduzível para testes).
+            fator = Decimal("1.0") + Decimal(indice) * Decimal("0.04")
+            opcoes.append(
+                OpcaoVoo(
+                    companhia=cia,
+                    origem=criterios.origem,
+                    destino=criterios.destino,
+                    preco_min=(preco_min_base * fator).quantize(Decimal("0.01")),
+                    preco_max=(preco_max_base * fator).quantize(Decimal("0.01")),
+                    moeda=registro["moeda"],
+                    duracao_horas=registro.get("duracao_horas"),
+                    escalas=registro.get("escalas", 0) + (0 if indice == 0 else indice - 1),
+                    link=f"https://www.google.com/travel/flights?q={_slug(cia)}+{_slug(criterios.origem)}+{_slug(criterios.destino)}",
+                    fonte=fonte,
+                )
             )
-            for cia in registro["companhias"]
-        ]
         if len(opcoes) >= 2:
-            opcoes[0].recomendada = True
-            opcoes[0].justificativa = "Menor preço médio e sem escalas na rota estimada."
+            mais_barata = min(opcoes, key=lambda o: o.preco_min)
+            mais_barata.recomendada = True
+            mais_barata.justificativa = "Menor preço médio na rota estimada."
         return ResultadoBusca(itens=opcoes)
 
 

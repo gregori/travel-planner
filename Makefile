@@ -18,6 +18,7 @@ dev-frontend:
 
 test:
 	cd backend && uv run pytest --cov=app --cov-report=term-missing
+	cd frontend && npm run test
 
 lint:
 	cd backend && uv run ruff check .

@@ -18,6 +18,10 @@ class SessionState:
     chamadas_de_ferramenta: int = 0
     tokens_usados: int = 0
     cache_buscas: dict[str, tuple[float, object]] = field(default_factory=dict)
+    # RF-04: assinatura do briefing usado para gerar o plano atual — se o
+    # briefing mudar, o plano é recalculado; se não mudou, evita replanejar
+    # a cada turno (RNF-08).
+    assinatura_do_ultimo_plano: str | None = None
 
     def expirada(self) -> bool:
         return time.monotonic() >= self.expira_em

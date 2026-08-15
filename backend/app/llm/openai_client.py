@@ -1,9 +1,17 @@
+import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
-from app.llm.base import LLMMessage, LLMResponse, LLMTodosModelosFalharamError, ToolCall
+from app.llm.base import (
+    LLMMessage,
+    LLMResponse,
+    LLMStreamChunk,
+    LLMTodosModelosFalharamError,
+    ToolCall,
+)
 
 logger = logging.getLogger("travel_planner.llm")
 
@@ -29,8 +37,6 @@ def _message_to_dict(msg: LLMMessage) -> dict[str, Any]:
 
 
 def _dumps(obj: Any) -> str:
-    import json
-
     return json.dumps(obj, ensure_ascii=False, default=str)
 
 
@@ -70,6 +76,112 @@ class OpenAICompatibleLLM:
                 continue
         raise LLMTodosModelosFalharamError(f"Todos os modelos da cadeia falharam: {'; '.join(erros)}")
 
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """Streaming real via SSE do endpoint `/chat/completions` (RF-06).
+
+        Tenta cada modelo da cadeia (RNF-07); o fallback só se aplica antes
+        do primeiro pedaço de conteúdo chegar — depois disso, uma falha no
+        meio do stream é propagada (evita duplicar texto já exibido).
+        """
+        erros: list[str] = []
+        for modelo in self._model_chain:
+            try:
+                algo_emitido = False
+                async for chunk in self._stream_modelo(modelo, messages, tools):
+                    algo_emitido = True
+                    yield chunk
+                return
+            except Exception as exc:  # noqa: BLE001 - fallback intencional
+                logger.warning("modelo %s falhou no streaming: %s", modelo, exc)
+                erros.append(f"{modelo}: {exc}")
+                if algo_emitido:
+                    raise
+                continue
+        raise LLMTodosModelosFalharamError(f"Todos os modelos da cadeia falharam: {'; '.join(erros)}")
+
+    async def _stream_modelo(
+        self,
+        modelo: str,
+        messages: list[LLMMessage],
+        tools: list[dict[str, Any]] | None,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        payload: dict[str, Any] = {
+            "model": modelo,
+            "messages": [_message_to_dict(m) for m in messages],
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        conteudo_total = ""
+        tool_calls_acc: dict[int, dict[str, Any]] = {}
+        finish_reason = "stop"
+
+        async with (
+            httpx.AsyncClient(timeout=self._timeout) as client,
+            client.stream(
+                "POST",
+                f"{self._base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json=payload,
+            ) as resp,
+        ):
+            resp.raise_for_status()
+            async for linha in resp.aiter_lines():
+                if not linha.startswith("data:"):
+                    continue
+                dado = linha[len("data:") :].strip()
+                if dado == "[DONE]":
+                    break
+                try:
+                    evento = json.loads(dado)
+                except json.JSONDecodeError:
+                    continue
+                escolha = (evento.get("choices") or [{}])[0]
+                delta = escolha.get("delta", {})
+                if escolha.get("finish_reason"):
+                    finish_reason = escolha["finish_reason"]
+
+                texto = delta.get("content")
+                if texto:
+                    conteudo_total += texto
+                    yield LLMStreamChunk(delta=texto)
+
+                for tc_delta in delta.get("tool_calls") or []:
+                    indice = tc_delta.get("index", 0)
+                    acumulado = tool_calls_acc.setdefault(indice, {"id": "", "name": "", "arguments": ""})
+                    if tc_delta.get("id"):
+                        acumulado["id"] = tc_delta["id"]
+                    funcao = tc_delta.get("function") or {}
+                    if funcao.get("name"):
+                        acumulado["name"] = funcao["name"]
+                    if funcao.get("arguments"):
+                        acumulado["arguments"] += funcao["arguments"]
+
+        tool_calls = []
+        for indice in sorted(tool_calls_acc):
+            acumulado = tool_calls_acc[indice]
+            try:
+                args = json.loads(acumulado["arguments"]) if acumulado["arguments"] else {}
+            except json.JSONDecodeError:
+                args = {}
+            tool_calls.append(
+                ToolCall(id=acumulado["id"] or f"call_{indice}", name=acumulado["name"], arguments=args)
+            )
+
+        resposta_final = LLMResponse(
+            content=conteudo_total or None,
+            tool_calls=tool_calls,
+            modelo_usado=modelo,
+            finish_reason=finish_reason,
+        )
+        yield LLMStreamChunk(resposta_final=resposta_final)
+
     async def _tenta_modelo(
         self,
         modelo: str,
@@ -97,8 +209,6 @@ class OpenAICompatibleLLM:
         msg = escolha["message"]
         tool_calls = []
         for tc in msg.get("tool_calls") or []:
-            import json
-
             try:
                 args = json.loads(tc["function"]["arguments"])
             except (json.JSONDecodeError, KeyError):

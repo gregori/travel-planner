@@ -14,7 +14,7 @@ const BRIEF_VAZIO: TripBrief = {
   mes_referencia: null,
   duracao_dias: null,
   datas_flexiveis: false,
-  adultos: 1,
+  adultos: null,
   criancas_idades: [],
   orcamento_total: null,
   moeda_orcamento: 'BRL',
@@ -67,10 +67,24 @@ export default function App() {
       setMensagens((atual) => [...atual, { autor: 'usuario', texto }])
       setAguardando(true)
       try {
-        let respostaAgente = ''
+        let respostaAcumulada = ''
+        let bolhaIniciada = false
         for await (const evento of enviarMensagem(sessionId, texto)) {
           if (evento.evento === 'token') {
-            respostaAgente += evento.dados
+            // RF-06: cada pedaço chega e já é exibido, em vez de esperar a
+            // resposta inteira para só então atualizar a tela.
+            respostaAcumulada += evento.dados
+            if (!bolhaIniciada) {
+              bolhaIniciada = true
+              setMensagens((atual) => [...atual, { autor: 'agente', texto: respostaAcumulada }])
+            } else {
+              const textoAtual = respostaAcumulada
+              setMensagens((atual) => {
+                const copia = [...atual]
+                copia[copia.length - 1] = { autor: 'agente', texto: textoAtual }
+                return copia
+              })
+            }
           } else if (evento.evento === 'brief_update') {
             setBrief(evento.dados)
           } else if (evento.evento === 'plan_ready') {
@@ -78,9 +92,6 @@ export default function App() {
           } else if (evento.evento === 'error') {
             setErro(evento.dados.mensagem)
           }
-        }
-        if (respostaAgente) {
-          setMensagens((atual) => [...atual, { autor: 'agente', texto: respostaAgente }])
         }
       } catch {
         setErro('A conversa foi interrompida. Tente novamente.')
@@ -113,7 +124,10 @@ export default function App() {
       <main className="app__main">
         <Chat mensagens={mensagens} aguardando={aguardando} onEnviar={handleEnviar} />
         <div className="app__lateral">
-          {plan && sessionId ? <PlanView plan={plan} sessionId={sessionId} /> : <BriefPanel brief={brief} />}
+          {/* RF-07: o briefing continua visível e atualizado mesmo depois do
+              plano pronto — não é substituído pelo roteiro. */}
+          <BriefPanel brief={brief} compacto={plan !== null} />
+          {plan && sessionId && <PlanView plan={plan} sessionId={sessionId} />}
         </div>
       </main>
     </div>

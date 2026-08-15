@@ -6,8 +6,8 @@ from typing import Any
 
 from app.agent.budget import calcular_orcamento
 from app.agent.cache import chamada_cacheada, chave_cache
-from app.agent.geo import eh_internacional
 from app.config import Settings
+from app.geo import descricao_clima_heuristica, eh_internacional, tomada_do_destino
 from app.models.common import Fonte
 from app.providers.base import (
     CriteriosAtracoes,
@@ -41,16 +41,91 @@ def _parse_data(valor: str | None) -> date | None:
 
 
 async def tool_atualizar_briefing(ctx: AgentContext, **campos: Any) -> dict:
-    campos_limpos = {k: v for k, v in campos.items() if v is not None}
-    inferidos = list(ctx.sessao.brief.campos_inferidos)
-    ctx.sessao.brief = ctx.sessao.brief.merge(**campos_limpos)
-    if inferidos:
-        ctx.sessao.brief.campos_inferidos = inferidos
+    ctx.sessao.brief = ctx.sessao.brief.merge(**campos).com_inferencias_padrao()
     return {
         "briefing": ctx.sessao.brief.model_dump(mode="json"),
         "campos_faltantes": ctx.sessao.brief.campos_faltantes(),
         "pronto_para_planejar": ctx.sessao.brief.pronto_para_planejar(),
     }
+
+
+async def _com_contagem_e_cache(ctx: AgentContext, chave: str, produzir):
+    """Envolve uma busca de provedor com cache por sessão (RF-17) e conta a
+    chamada contra o teto por sessão (RNF-08) — usado tanto pelas ferramentas
+    expostas ao LLM quanto pelo pipeline determinístico do planner, para que
+    ambos os caminhos respeitem o mesmo orçamento de chamadas."""
+    ctx.sessao.chamadas_de_ferramenta += 1
+    return await chamada_cacheada(ctx.sessao, chave, ctx.settings.cache_ttl_minutes, produzir)
+
+
+async def buscar_hospedagem_cacheada(
+    ctx: AgentContext,
+    cidade: str,
+    check_in: date | None,
+    check_out: date | None,
+    hospedes: int,
+    avisos: list[str],
+    preco_min: Decimal | None = None,
+    preco_max: Decimal | None = None,
+):
+    criterios = CriteriosHospedagem(
+        cidade=cidade,
+        check_in=check_in,
+        check_out=check_out,
+        hospedes=hospedes,
+        preco_min=preco_min,
+        preco_max=preco_max,
+        moeda=ctx.sessao.brief.moeda_exibicao,
+    )
+    chave = chave_cache(
+        "buscar_hospedagem", cidade=_slug(cidade), check_in=str(check_in), check_out=str(check_out)
+    )
+    return await _com_contagem_e_cache(ctx, chave, lambda: ctx.registry.buscar_hospedagem(criterios, avisos))
+
+
+async def buscar_atracoes_cacheada(
+    ctx: AgentContext, cidade: str, interesses: list[str], perfil: str, avisos: list[str]
+):
+    criterios = CriteriosAtracoes(cidade=cidade, interesses=interesses, perfil=perfil)
+    chave = chave_cache("buscar_atracoes", cidade=_slug(cidade), interesses=sorted(interesses))
+    return await _com_contagem_e_cache(ctx, chave, lambda: ctx.registry.buscar_atracoes(criterios, avisos))
+
+
+async def buscar_restaurantes_cacheada(
+    ctx: AgentContext, cidade: str, restricoes: list[str], avisos: list[str], faixa_preco: str | None = None
+):
+    criterios = CriteriosRestaurantes(cidade=cidade, restricoes=restricoes, faixa_preco=faixa_preco)
+    chave = chave_cache("buscar_restaurantes", cidade=_slug(cidade), restricoes=sorted(restricoes))
+    return await _com_contagem_e_cache(
+        ctx, chave, lambda: ctx.registry.buscar_restaurantes(criterios, avisos)
+    )
+
+
+async def estimar_voos_cacheado(
+    ctx: AgentContext,
+    origem: str,
+    destino: str,
+    data_ida: date | None,
+    data_volta: date | None,
+    passageiros: int,
+    avisos: list[str],
+):
+    criterios = CriteriosVoo(
+        origem=origem,
+        destino=destino,
+        data_ida=data_ida,
+        data_volta=data_volta,
+        passageiros=passageiros,
+        moeda=ctx.sessao.brief.moeda_exibicao,
+    )
+    chave = chave_cache("estimar_voos", origem=_slug(origem), destino=_slug(destino))
+    return await _com_contagem_e_cache(ctx, chave, lambda: ctx.registry.estimar_voos(criterios, avisos))
+
+
+async def cotar_cambio_cacheado(ctx: AgentContext, moeda_origem: str, moeda_destino: str, avisos: list[str]):
+    criterios = CriteriosCambio(moeda_origem=moeda_origem, moeda_destino=moeda_destino)
+    chave = chave_cache("cotar_cambio", moeda_origem=moeda_origem, moeda_destino=moeda_destino)
+    return await _com_contagem_e_cache(ctx, chave, lambda: ctx.registry.cotar_cambio(criterios, avisos))
 
 
 async def tool_buscar_hospedagem(
@@ -62,22 +137,16 @@ async def tool_buscar_hospedagem(
     preco_min: float | None = None,
     preco_max: float | None = None,
 ) -> dict:
-    criterios = CriteriosHospedagem(
-        cidade=cidade,
-        check_in=_parse_data(check_in),
-        check_out=_parse_data(check_out),
-        hospedes=hospedes,
-        preco_min=Decimal(str(preco_min)) if preco_min is not None else None,
-        preco_max=Decimal(str(preco_max)) if preco_max is not None else None,
-        moeda=ctx.sessao.brief.moeda_exibicao,
-    )
-    chave = chave_cache("buscar_hospedagem", cidade=_slug(cidade), check_in=check_in, check_out=check_out)
     avisos: list[str] = []
-    resultado = await chamada_cacheada(
-        ctx.sessao,
-        chave,
-        ctx.settings.cache_ttl_minutes,
-        lambda: ctx.registry.buscar_hospedagem(criterios, avisos),
+    resultado = await buscar_hospedagem_cacheada(
+        ctx,
+        cidade,
+        _parse_data(check_in),
+        _parse_data(check_out),
+        hospedes,
+        avisos,
+        Decimal(str(preco_min)) if preco_min is not None else None,
+        Decimal(str(preco_max)) if preco_max is not None else None,
     )
     return {
         "opcoes": [o.model_dump(mode="json") for o in resultado.itens],
@@ -92,15 +161,8 @@ async def tool_buscar_atracoes(
     interesses: list[str] | None = None,
     perfil: str = "geral",
 ) -> dict:
-    criterios = CriteriosAtracoes(cidade=cidade, interesses=interesses or [], perfil=perfil)
-    chave = chave_cache("buscar_atracoes", cidade=_slug(cidade), interesses=sorted(interesses or []))
     avisos: list[str] = []
-    resultado = await chamada_cacheada(
-        ctx.sessao,
-        chave,
-        ctx.settings.cache_ttl_minutes,
-        lambda: ctx.registry.buscar_atracoes(criterios, avisos),
-    )
+    resultado = await buscar_atracoes_cacheada(ctx, cidade, interesses or [], perfil, avisos)
     return {
         "atracoes": [a.model_dump(mode="json") for a in resultado.itens],
         "motivo_vazio": resultado.motivo_vazio,
@@ -114,15 +176,8 @@ async def tool_buscar_restaurantes(
     restricoes: list[str] | None = None,
     faixa_preco: str | None = None,
 ) -> dict:
-    criterios = CriteriosRestaurantes(cidade=cidade, restricoes=restricoes or [], faixa_preco=faixa_preco)
-    chave = chave_cache("buscar_restaurantes", cidade=_slug(cidade), restricoes=sorted(restricoes or []))
     avisos: list[str] = []
-    resultado = await chamada_cacheada(
-        ctx.sessao,
-        chave,
-        ctx.settings.cache_ttl_minutes,
-        lambda: ctx.registry.buscar_restaurantes(criterios, avisos),
-    )
+    resultado = await buscar_restaurantes_cacheada(ctx, cidade, restricoes or [], avisos, faixa_preco)
     return {
         "restaurantes": [r.model_dump(mode="json") for r in resultado.itens],
         "motivo_vazio": resultado.motivo_vazio,
@@ -138,21 +193,9 @@ async def tool_estimar_voos(
     data_volta: str | None = None,
     passageiros: int = 1,
 ) -> dict:
-    criterios = CriteriosVoo(
-        origem=origem,
-        destino=destino,
-        data_ida=_parse_data(data_ida),
-        data_volta=_parse_data(data_volta),
-        passageiros=passageiros,
-        moeda=ctx.sessao.brief.moeda_exibicao,
-    )
-    chave = chave_cache("estimar_voos", origem=_slug(origem), destino=_slug(destino))
     avisos: list[str] = []
-    resultado = await chamada_cacheada(
-        ctx.sessao,
-        chave,
-        ctx.settings.cache_ttl_minutes,
-        lambda: ctx.registry.estimar_voos(criterios, avisos),
+    resultado = await estimar_voos_cacheado(
+        ctx, origem, destino, _parse_data(data_ida), _parse_data(data_volta), passageiros, avisos
     )
     return {
         "opcoes": [o.model_dump(mode="json") for o in resultado.itens],
@@ -162,15 +205,8 @@ async def tool_estimar_voos(
 
 
 async def tool_cotar_cambio(ctx: AgentContext, moeda_origem: str, moeda_destino: str) -> dict:
-    criterios = CriteriosCambio(moeda_origem=moeda_origem, moeda_destino=moeda_destino)
-    chave = chave_cache("cotar_cambio", moeda_origem=moeda_origem, moeda_destino=moeda_destino)
     avisos: list[str] = []
-    cotacao = await chamada_cacheada(
-        ctx.sessao,
-        chave,
-        ctx.settings.cache_ttl_minutes,
-        lambda: ctx.registry.cotar_cambio(criterios, avisos),
-    )
+    cotacao = await cotar_cambio_cacheado(ctx, moeda_origem, moeda_destino, avisos)
     if cotacao is None:
         return {"cotacao": None, "motivo_vazio": "Par de moedas não suportado.", "avisos": avisos}
     return {"cotacao": cotacao.model_dump(mode="json"), "motivo_vazio": None, "avisos": avisos}
@@ -208,12 +244,12 @@ async def tool_info_pratica(
         if internacional
         else ["Documento de identidade com foto"]
     )
+    mes_numero = ctx.sessao.brief.data_ida.month if ctx.sessao.brief.data_ida else None
     checklist = {
         "documentos": documentos_base,
-        "clima": f"Consulte a previsão de {periodo or 'período da viagem'} para {destino} próximo à data — "
-        "estimativa não substitui previsão atualizada.",
+        "clima": descricao_clima_heuristica(destino, periodo, mes_numero),
         "moeda_e_cambio": ctx.sessao.brief.moeda_exibicao,
-        "tomada_adaptador": "Verifique o padrão de tomada local; leve adaptador universal por precaução.",
+        "tomada_adaptador": f"Padrão local: {tomada_do_destino(destino)}. Leve adaptador universal.",
         "o_que_levar": [
             "Adaptador de tomada",
             "Medicamentos de uso pessoal",

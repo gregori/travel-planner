@@ -1,6 +1,7 @@
+from collections.abc import AsyncIterator
 from typing import Any
 
-from app.llm.base import LLMMessage, LLMResponse, LLMTodosModelosFalharamError, ToolCall
+from app.llm.base import LLMMessage, LLMResponse, LLMStreamChunk, LLMTodosModelosFalharamError, ToolCall
 
 
 class FakeLLM:
@@ -44,6 +45,22 @@ class FakeLLM:
             return resposta
 
         raise LLMTodosModelosFalharamError(f"Todos os modelos falharam (simulado): {self._model_chain}")
+
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """Simula streaming dividindo o conteúdo do roteiro em palavras —
+        determinístico, sem rede (RNF-03), mas exercita o mesmo caminho de
+        emissão incremental usado pelo cliente real (RF-06)."""
+        resposta = await self.complete(messages, tools)
+        if resposta.content:
+            palavras = resposta.content.split(" ")
+            for i, palavra in enumerate(palavras):
+                pedaco = palavra if i == len(palavras) - 1 else palavra + " "
+                yield LLMStreamChunk(delta=pedaco)
+        yield LLMStreamChunk(resposta_final=resposta)
 
 
 def resposta_texto(texto: str, modelo: str = "fake-model") -> LLMResponse:

@@ -1,3 +1,4 @@
+import unicodedata
 from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
@@ -7,6 +8,10 @@ from app.models.plan import Atividade, Deslocamento, DiaItinerario, SugestaoRefe
 
 MAX_ATIVIDADES_POR_RITMO = {"leve": 2, "moderado": 3, "intenso": 4}
 MAX_ATIVIDADES_RESTRITO = 2  # RF-22: crianças ou mobilidade reduzida
+
+
+def _slug(texto: str) -> str:
+    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().strip().lower()
 
 
 def _max_atividades_principais(brief: TripBrief) -> int:
@@ -37,13 +42,21 @@ def _tomar_ate(disponiveis: list[Atividade], n: int) -> list[Atividade]:
 
 
 def _tomar_refeicao(refeicoes: list[SugestaoRefeicao], regiao: str) -> list[Atividade]:
+    """Escolhe uma refeição para o dia, preferindo uma cuja localização real
+    bata com a região do dia (RF-21: coerência geográfica) — só cai para a
+    próxima disponível se nenhuma refeição estiver naquela região."""
     if not refeicoes:
         return []
-    ref = refeicoes.pop(0)
+    regiao_slug = _slug(regiao)
+    indice = next(
+        (i for i, r in enumerate(refeicoes) if r.localizacao and regiao_slug in _slug(r.localizacao)),
+        0,
+    )
+    ref = refeicoes.pop(indice)
     return [
         Atividade(
             titulo=f"Jantar: {ref.nome}",
-            descricao=ref.compatibilidade,
+            descricao=f"{ref.compatibilidade} ({ref.localizacao or regiao})",
             regiao=regiao,
             custo_estimado=Decimal("0"),
             fonte=ref.fonte,

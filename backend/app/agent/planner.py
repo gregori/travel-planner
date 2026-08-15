@@ -2,18 +2,19 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.agent.budget import calcular_orcamento
-from app.agent.geo import eh_internacional, moeda_do_destino
 from app.agent.itinerary import montar_itinerario
-from app.agent.tools import AgentContext, tool_info_pratica
+from app.agent.tools import (
+    AgentContext,
+    buscar_atracoes_cacheada,
+    buscar_hospedagem_cacheada,
+    buscar_restaurantes_cacheada,
+    cotar_cambio_cacheado,
+    estimar_voos_cacheado,
+    tool_info_pratica,
+)
+from app.geo import eh_internacional, moeda_do_destino
 from app.models.common import Fonte
 from app.models.plan import Checklist, TripPlan
-from app.providers.base import (
-    CriteriosAtracoes,
-    CriteriosCambio,
-    CriteriosHospedagem,
-    CriteriosRestaurantes,
-    CriteriosVoo,
-)
 
 ALIMENTACAO_DIARIA_POR_PESSOA = Decimal("120")
 TRANSPORTE_LOCAL_DIARIO_POR_PESSOA = Decimal("30")
@@ -36,12 +37,44 @@ def _converter(valor: Decimal, moeda_origem: str, moeda_destino: str, taxa: Deci
     return valor
 
 
+def _fonte_heuristica(observacao: str) -> Fonte:
+    return Fonte(
+        tipo="estimativa",
+        provedor="heuristica",
+        url=None,
+        consultado_em=datetime.now(UTC),
+        confianca="baixa",
+        observacao=observacao,
+    )
+
+
+def _converter_itinerario_para_moeda_exibicao(
+    itinerario, moeda_exibicao: str, taxa_cambio: Decimal | None
+) -> None:
+    """Converte o custo de cada atividade do pool (potencialmente na moeda do
+    destino) para a moeda de exibição, para que o orçamento e o itinerário
+    fiquem consistentes numa única moeda (RF-13)."""
+    for dia in itinerario:
+        for bloco in (dia.manha, dia.tarde, dia.noite):
+            for atividade in bloco:
+                if atividade.custo_estimado > 0 and atividade.moeda != moeda_exibicao:
+                    atividade.custo_estimado = _converter(
+                        atividade.custo_estimado, atividade.moeda, moeda_exibicao, taxa_cambio
+                    )
+                    atividade.moeda = moeda_exibicao
+        dia.custo_estimado_dia = sum(
+            (a.custo_estimado for a in dia.manha + dia.tarde + dia.noite), Decimal("0")
+        )
+
+
 async def gerar_plano(ctx: AgentContext) -> TripPlan:
     """Pipeline determinístico de geração do TripPlan (RF-20..28).
 
     A conversa (LLM) decide *quando* planejar; a montagem do plano em si é
     determinística para garantir os critérios de aceite (§11) de forma
-    reprodutível, inclusive com `FakeLLM` nos testes (RNF-03).
+    reprodutível, inclusive com `FakeLLM` nos testes (RNF-03). As buscas
+    passam pelo mesmo cache/contador de chamadas usado pelas ferramentas do
+    agente (RF-17, RNF-08).
     """
     brief = ctx.sessao.brief
     avisos: list[str] = []
@@ -55,24 +88,14 @@ async def gerar_plano(ctx: AgentContext) -> TripPlan:
     moeda_local = moeda_do_destino(destino)
     cambio = None
     if moeda_local != brief.moeda_exibicao:
-        resultado_cambio = await ctx.registry.cotar_cambio(
-            CriteriosCambio(moeda_origem=moeda_local, moeda_destino=brief.moeda_exibicao), avisos
-        )
-        cambio = resultado_cambio
+        cambio = await cotar_cambio_cacheado(ctx, moeda_local, brief.moeda_exibicao, avisos)
         if cambio:
             fontes.append(cambio.fonte)
     taxa_cambio = cambio.taxa if cambio else None
 
     # Hospedagem (RF-10, RF-24: >= 3 opções)
-    resultado_h = await ctx.registry.buscar_hospedagem(
-        CriteriosHospedagem(
-            cidade=destino,
-            check_in=brief.data_ida,
-            check_out=brief.data_volta,
-            hospedes=brief.total_viajantes,
-            moeda=brief.moeda_exibicao,
-        ),
-        avisos,
+    resultado_h = await buscar_hospedagem_cacheada(
+        ctx, destino, brief.data_ida, brief.data_volta, brief.total_viajantes, avisos
     )
     opcoes_hospedagem = resultado_h.itens
     if opcoes_hospedagem:
@@ -80,48 +103,38 @@ async def gerar_plano(ctx: AgentContext) -> TripPlan:
         mais_barata.recomendada = True
         mais_barata.justificativa = "Melhor custo-benefício entre as opções encontradas para o período."
         fontes.extend(h.fonte for h in opcoes_hospedagem)
-    elif resultado_h.motivo_vazio:
-        avisos.append(resultado_h.motivo_vazio)
+    else:
+        avisos.append(resultado_h.motivo_vazio or f"Nenhuma hospedagem encontrada em {destino}.")
 
     # Atrações (RF-11)
-    resultado_a = await ctx.registry.buscar_atracoes(
-        CriteriosAtracoes(cidade=destino, interesses=brief.interesses, perfil=_perfil(brief)),
-        avisos,
-    )
+    resultado_a = await buscar_atracoes_cacheada(ctx, destino, brief.interesses, _perfil(brief), avisos)
     atividades_pool = list(resultado_a.itens)
-    if not atividades_pool and resultado_a.motivo_vazio:
-        avisos.append(resultado_a.motivo_vazio)
+    if not atividades_pool:
+        avisos.append(resultado_a.motivo_vazio or f"Nenhuma atração encontrada em {destino}.")
     fontes.extend(a.fonte for a in atividades_pool if a.fonte)
 
     # Restaurantes (RF-14)
-    resultado_r = await ctx.registry.buscar_restaurantes(
-        CriteriosRestaurantes(cidade=destino, restricoes=brief.restricoes_alimentares), avisos
-    )
+    resultado_r = await buscar_restaurantes_cacheada(ctx, destino, brief.restricoes_alimentares, avisos)
     refeicoes = list(resultado_r.itens)
-    if not refeicoes and resultado_r.motivo_vazio:
-        avisos.append(resultado_r.motivo_vazio)
+    if not refeicoes:
+        avisos.append(
+            resultado_r.motivo_vazio
+            or f"Nenhum restaurante encontrado em {destino} para as restrições informadas."
+        )
     fontes.extend(r.fonte for r in refeicoes)
 
     # Voos (RF-12, RF-24: >= 2 opções)
     opcoes_voo = []
     if brief.origem:
-        resultado_v = await ctx.registry.estimar_voos(
-            CriteriosVoo(
-                origem=origem,
-                destino=destino,
-                data_ida=brief.data_ida,
-                data_volta=brief.data_volta,
-                passageiros=brief.total_viajantes,
-                moeda=brief.moeda_exibicao,
-            ),
-            avisos,
+        resultado_v = await estimar_voos_cacheado(
+            ctx, origem, destino, brief.data_ida, brief.data_volta, brief.total_viajantes, avisos
         )
         opcoes_voo = resultado_v.itens
         fontes.extend(v.fonte for v in opcoes_voo)
 
-    # Itinerário (RF-20..23) — usa cópias para não esvaziar as listas originais
-    # antes do cálculo de orçamento (que soma custo por atividade já atribuída).
+    # Itinerário (RF-20..23)
     itinerario = montar_itinerario(brief, dias_total, list(atividades_pool), list(refeicoes))
+    _converter_itinerario_para_moeda_exibicao(itinerario, brief.moeda_exibicao, taxa_cambio)
 
     # Orçamento (RF-25, RF-26) — usa sempre a opção recomendada (mais barata)
     hospedagem_escolhida = next((h for h in opcoes_hospedagem if h.recomendada), None) or (
@@ -152,6 +165,7 @@ async def gerar_plano(ctx: AgentContext) -> TripPlan:
         if voo_escolhido
         else Decimal("0")
     )
+    # Atividades já convertidas para moeda_exibicao acima; soma direta.
     custo_passeios = (
         sum(
             (a.custo_estimado for dia in itinerario for a in dia.manha + dia.tarde + dia.noite),
@@ -162,6 +176,17 @@ async def gerar_plano(ctx: AgentContext) -> TripPlan:
     custo_alimentacao = ALIMENTACAO_DIARIA_POR_PESSOA * dias_total * brief.total_viajantes
     custo_transporte_local = TRANSPORTE_LOCAL_DIARIO_POR_PESSOA * dias_total * brief.total_viajantes
 
+    fonte_alimentacao = _fonte_heuristica(
+        f"Estimativa heurística de alimentação: {ALIMENTACAO_DIARIA_POR_PESSOA} {brief.moeda_exibicao}"
+        "/pessoa/dia — não vem de um provedor específico."
+    )
+    fonte_transporte = _fonte_heuristica(
+        f"Estimativa heurística de transporte local: {TRANSPORTE_LOCAL_DIARIO_POR_PESSOA} "
+        f"{brief.moeda_exibicao}/pessoa/dia — não vem de um provedor específico."
+    )
+    fontes.append(fonte_alimentacao)
+    fontes.append(fonte_transporte)
+
     orcamento = calcular_orcamento(
         voos=custo_voos,
         hospedagem=custo_hospedagem,
@@ -170,6 +195,8 @@ async def gerar_plano(ctx: AgentContext) -> TripPlan:
         transporte_local=custo_transporte_local,
         teto_informado=brief.orcamento_total,
         tolerancia=brief.tolerancia_orcamento,
+        moeda=brief.moeda_exibicao,
+        fontes=[fonte_alimentacao, fonte_transporte],
     )
     avisos.extend(orcamento.alertas)
 
@@ -205,6 +232,6 @@ async def gerar_plano(ctx: AgentContext) -> TripPlan:
         cambio=cambio,
         checklist=checklist,
         fontes=fontes,
-        avisos=avisos,
+        avisos=list(dict.fromkeys(avisos)),
         gerado_em=datetime.now(UTC),
     )

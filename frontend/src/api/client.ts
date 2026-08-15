@@ -43,6 +43,26 @@ export type EventoChat =
   | { evento: 'error'; dados: { codigo: string; mensagem: string } }
   | { evento: 'done'; dados: null }
 
+/** Faz o parsing de um único bloco SSE (linhas `event:`/`data:` separadas por
+ * uma linha em branco) em `{ evento, dados }`. Função pura, extraída de
+ * `enviarMensagem` para ser testável sem precisar simular um stream de
+ * verdade — foi aqui que um bug real escapou (blocos separados por `\r\n\r\n`
+ * eram ignorados por um parser que só reconhecia `\n\n`). */
+export function parseBlocoSSE(bloco: string): { evento: string; dados: unknown } | null {
+  let evento = 'message'
+  let dados = ''
+  for (const linha of bloco.split('\n')) {
+    if (linha.startsWith('event:')) evento = linha.slice(6).trim()
+    else if (linha.startsWith('data:')) dados += linha.slice(5).trim()
+  }
+  if (!dados) return null
+  try {
+    return { evento, dados: JSON.parse(dados) }
+  } catch {
+    return null // bloco malformado (ex.: heartbeat/comentário SSE)
+  }
+}
+
 /** Consome o SSE de /api/chat (RF-06) manualmente via fetch, pois EventSource
  * nativo não suporta requisições POST com corpo. */
 export async function* enviarMensagem(
@@ -72,20 +92,8 @@ export async function* enviarMensagem(
     while ((indiceSeparador = buffer.indexOf('\n\n')) !== -1) {
       const bloco = buffer.slice(0, indiceSeparador)
       buffer = buffer.slice(indiceSeparador + 2)
-
-      let evento = 'message'
-      let dados = ''
-      for (const linha of bloco.split('\n')) {
-        if (linha.startsWith('event:')) evento = linha.slice(6).trim()
-        else if (linha.startsWith('data:')) dados += linha.slice(5).trim()
-      }
-      if (!dados) continue
-      try {
-        const dadosParsed = JSON.parse(dados)
-        yield { evento, dados: dadosParsed } as EventoChat
-      } catch {
-        // ignora blocos malformados (ex.: heartbeat/comentário SSE)
-      }
+      const evento = parseBlocoSSE(bloco)
+      if (evento) yield evento as EventoChat
     }
   }
 }

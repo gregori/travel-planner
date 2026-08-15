@@ -19,7 +19,10 @@ function Campo({ label, valor }: { label: string; valor: string | null | undefin
   )
 }
 
-export function BriefPanel({ brief }: { brief: TripBrief }) {
+/** RF-07: painel de briefing, atualizado a cada turno. Quando `compacto` é
+ * true (plano já pronto), fica recolhido por padrão para não competir com o
+ * roteiro, mas continua acessível e atualizado — não desaparece. */
+export function BriefPanel({ brief, compacto = false }: { brief: TripBrief; compacto?: boolean }) {
   const periodo = brief.data_ida && brief.data_volta
     ? `${brief.data_ida} → ${brief.data_volta}`
     : brief.mes_referencia && brief.duracao_dias
@@ -27,15 +30,14 @@ export function BriefPanel({ brief }: { brief: TripBrief }) {
       : null
 
   const viajantes = brief.adultos || brief.criancas_idades.length
-    ? `${brief.adultos} adulto(s)` +
+    ? `${brief.adultos ?? '?'} adulto(s)` +
       (brief.criancas_idades.length ? ` + ${brief.criancas_idades.length} criança(s)` : '')
     : null
 
   const faltantes = camposFaltantes(brief)
 
-  return (
-    <section className="panel" aria-label="Resumo da viagem">
-      <h2>Seu briefing</h2>
+  const conteudo = (
+    <>
       <div className="brief-grid">
         <Campo label="Origem" valor={brief.origem} />
         <Campo label="Destino" valor={brief.destino} />
@@ -63,6 +65,22 @@ export function BriefPanel({ brief }: { brief: TripBrief }) {
           Ainda faltam: <strong>{faltantes.join(', ')}</strong>
         </p>
       )}
+    </>
+  )
+
+  if (compacto) {
+    return (
+      <details className="panel brief-panel--compacto" aria-label="Resumo da viagem">
+        <summary>Seu briefing</summary>
+        {conteudo}
+      </details>
+    )
+  }
+
+  return (
+    <section className="panel" aria-label="Resumo da viagem">
+      <h2>Seu briefing</h2>
+      {conteudo}
     </section>
   )
 }
@@ -73,6 +91,7 @@ function camposFaltantes(brief: TripBrief): string[] {
   const temDatas = brief.data_ida && brief.data_volta
   const temMes = brief.mes_referencia && brief.duracao_dias
   if (!temDatas && !temMes) faltantes.push('datas (ou mês + duração)')
+  if (brief.adultos === null) faltantes.push('número de viajantes')
   if (!brief.orcamento_total) faltantes.push('orçamento')
   return faltantes
 }
