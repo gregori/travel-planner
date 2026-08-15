@@ -3,81 +3,81 @@ from datetime import date
 from decimal import Decimal
 from typing import Generic, Protocol, TypeVar
 
-from app.models.plan import Atividade, CotacaoCambio, OpcaoHospedagem, OpcaoVoo, SugestaoRefeicao
+from app.models.plan import AccommodationOption, Activity, ExchangeRate, FlightOption, MealSuggestion
 
 T = TypeVar("T")
 
 
 @dataclass
-class ResultadoBusca(Generic[T]):
+class SearchResult(Generic[T]):
     """Envelope de resultado de um provedor.
 
-    Se `itens` vier vazio, `motivo_vazio` explica por quê (RNF-02: nunca
+    Se `items` vier vazio, `empty_reason` explica por quê (RNF-02: nunca
     inventar dados — o agente deve declarar a lacuna, não preencher com
     plausibilidade).
     """
 
-    itens: list[T] = field(default_factory=list)
-    degradado: bool = False
-    motivo_vazio: str | None = None
+    items: list[T] = field(default_factory=list)
+    degraded: bool = False
+    empty_reason: str | None = None
 
 
 @dataclass
-class CriteriosHospedagem:
-    cidade: str
+class AccommodationCriteria:
+    city: str
     check_in: date | None
     check_out: date | None
-    hospedes: int
-    preco_min: Decimal | None = None
-    preco_max: Decimal | None = None
-    moeda: str = "BRL"
+    guests: int
+    min_price: Decimal | None = None
+    max_price: Decimal | None = None
+    currency: str = "BRL"
 
 
 @dataclass
-class CriteriosAtracoes:
-    cidade: str
-    interesses: list[str] = field(default_factory=list)
-    perfil: str = "geral"
+class AttractionsCriteria:
+    city: str
+    interests: list[str] = field(default_factory=list)
+    profile: str = "geral"
 
 
 @dataclass
-class CriteriosRestaurantes:
-    cidade: str
-    restricoes: list[str] = field(default_factory=list)
-    faixa_preco: str | None = None
+class RestaurantsCriteria:
+    city: str
+    restrictions: list[str] = field(default_factory=list)
+    price_range: str | None = None
 
 
 @dataclass
-class CriteriosVoo:
-    origem: str
-    destino: str
-    data_ida: date | None
-    data_volta: date | None
-    passageiros: int
-    moeda: str = "BRL"
+class FlightCriteria:
+    origin: str
+    destination: str
+    departure_date: date | None
+    return_date: date | None
+    passengers: int
+    currency: str = "BRL"
 
 
 @dataclass
-class CriteriosCambio:
-    moeda_origem: str
-    moeda_destino: str
+class ExchangeCriteria:
+    source_currency: str
+    target_currency: str
 
 
-class ProvedorHospedagem(Protocol):
-    async def buscar(self, criterios: CriteriosHospedagem) -> ResultadoBusca[OpcaoHospedagem]: ...
+class AccommodationProvider(Protocol):
+    async def search(self, criteria: AccommodationCriteria) -> SearchResult[AccommodationOption]: ...
 
 
-class ProvedorAtracoes(Protocol):
-    async def buscar(self, criterios: CriteriosAtracoes) -> ResultadoBusca[Atividade]: ...
+class AttractionsProvider(Protocol):
+    async def search(self, criteria: AttractionsCriteria) -> SearchResult[Activity]: ...
 
 
-class ProvedorRestaurantes(Protocol):
-    async def buscar(self, criterios: CriteriosRestaurantes) -> ResultadoBusca[SugestaoRefeicao]: ...
+class RestaurantsProvider(Protocol):
+    async def search(self, criteria: RestaurantsCriteria) -> SearchResult[MealSuggestion]: ...
 
 
-class ProvedorVoos(Protocol):
-    async def estimar(self, criterios: CriteriosVoo) -> ResultadoBusca[OpcaoVoo]: ...
+class FlightsProvider(Protocol):
+    async def estimate(self, criteria: FlightCriteria) -> SearchResult[FlightOption]: ...
 
 
-class ProvedorCambio(Protocol):
-    async def cotar(self, criterios: CriteriosCambio) -> CotacaoCambio | None: ...
+class ExchangeRateProviderProtocol(Protocol):
+    async def get_rate(self, criteria: ExchangeCriteria) -> ExchangeRate | None: ...

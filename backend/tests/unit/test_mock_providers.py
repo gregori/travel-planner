@@ -1,92 +1,94 @@
 import pytest
 
 from app.providers.base import (
-    CriteriosAtracoes,
-    CriteriosCambio,
-    CriteriosHospedagem,
-    CriteriosRestaurantes,
-    CriteriosVoo,
+    AccommodationCriteria,
+    AttractionsCriteria,
+    ExchangeCriteria,
+    FlightCriteria,
+    RestaurantsCriteria,
 )
 from app.providers.mock import (
-    ExchangeRateProviderMock,
-    MockAtracoesProvider,
-    MockHospedagemProvider,
-    MockRestaurantesProvider,
-    WebFlightEstimatorMock,
+    MockAccommodationProvider,
+    MockAttractionsProvider,
+    MockExchangeRateProvider,
+    MockFlightEstimator,
+    MockRestaurantsProvider,
 )
 
 
 @pytest.mark.asyncio
 async def test_hospedagem_mock_retorna_ao_menos_tres_opcoes_com_fonte():
-    provider = MockHospedagemProvider()
-    resultado = await provider.buscar(
-        CriteriosHospedagem(cidade="Lisboa", check_in=None, check_out=None, hospedes=3)
+    provider = MockAccommodationProvider()
+    result = await provider.search(
+        AccommodationCriteria(city="Lisboa", check_in=None, check_out=None, guests=3)
     )
-    assert len(resultado.itens) >= 3
-    for opcao in resultado.itens:
-        assert opcao.fonte.tipo == "mock"
-        assert opcao.preco_por_noite > 0
+    assert len(result.items) >= 3
+    for option in result.items:
+        assert option.source.type == "mock"
+        assert option.price_per_night > 0
 
 
 @pytest.mark.asyncio
 async def test_hospedagem_mock_gera_generico_para_cidade_desconhecida():
-    provider = MockHospedagemProvider()
-    resultado = await provider.buscar(
-        CriteriosHospedagem(cidade="Cidade Inexistente XYZ", check_in=None, check_out=None, hospedes=2)
+    provider = MockAccommodationProvider()
+    result = await provider.search(
+        AccommodationCriteria(city="Cidade Inexistente XYZ", check_in=None, check_out=None, guests=2)
     )
-    assert len(resultado.itens) >= 3
+    assert len(result.items) >= 3
 
 
 @pytest.mark.asyncio
 async def test_restaurantes_respeita_restricao_sem_gluten():
-    provider = MockRestaurantesProvider()
-    resultado = await provider.buscar(CriteriosRestaurantes(cidade="Lisboa", restricoes=["sem glúten"]))
-    assert len(resultado.itens) > 0
-    for r in resultado.itens:
-        assert "sem glúten" in r.compatibilidade or "Atende" in r.compatibilidade
+    provider = MockRestaurantsProvider()
+    result = await provider.search(RestaurantsCriteria(city="Lisboa", restrictions=["sem glúten"]))
+    assert len(result.items) > 0
+    for r in result.items:
+        assert "sem glúten" in r.compatibility or "Atende" in r.compatibility
 
 
 @pytest.mark.asyncio
 async def test_restaurantes_declara_lacuna_quando_nada_atende(monkeypatch):
-    provider = MockRestaurantesProvider()
-    resultado = await provider.buscar(
-        CriteriosRestaurantes(cidade="Lisboa", restricoes=["restricao-inexistente-xyz"])
+    provider = MockRestaurantsProvider()
+    result = await provider.search(
+        RestaurantsCriteria(city="Lisboa", restrictions=["restricao-inexistente-xyz"])
     )
-    assert resultado.itens == []
-    assert resultado.motivo_vazio is not None
+    assert result.items == []
+    assert result.empty_reason is not None
 
 
 @pytest.mark.asyncio
 async def test_atracoes_filtra_por_interesse():
-    provider = MockAtracoesProvider()
-    resultado = await provider.buscar(CriteriosAtracoes(cidade="Paris", interesses=["romantica"]))
-    assert len(resultado.itens) > 0
+    provider = MockAttractionsProvider()
+    result = await provider.search(AttractionsCriteria(city="Paris", interests=["romantica"]))
+    assert len(result.items) > 0
 
 
 @pytest.mark.asyncio
 async def test_voos_sempre_rotulado_como_estimativa_com_faixa():
-    provider = WebFlightEstimatorMock()
-    resultado = await provider.estimar(
-        CriteriosVoo(origem="São Paulo", destino="Lisboa", data_ida=None, data_volta=None, passageiros=2)
+    provider = MockFlightEstimator()
+    result = await provider.estimate(
+        FlightCriteria(
+            origin="São Paulo", destination="Lisboa", departure_date=None, return_date=None, passengers=2
+        )
     )
-    assert len(resultado.itens) >= 2
-    for voo in resultado.itens:
-        assert voo.fonte.tipo == "estimativa"
-        assert voo.preco_min < voo.preco_max
-    assert sum(1 for v in resultado.itens if v.recomendada) == 1
+    assert len(result.items) >= 2
+    for flight in result.items:
+        assert flight.source.type == "estimate"
+        assert flight.min_price < flight.max_price
+    assert sum(1 for f in result.items if f.recommended) == 1
 
 
 @pytest.mark.asyncio
 async def test_cambio_mock_retorna_taxa_conhecida():
-    provider = ExchangeRateProviderMock()
-    cotacao = await provider.cotar(CriteriosCambio(moeda_origem="EUR", moeda_destino="BRL"))
-    assert cotacao is not None
-    assert cotacao.taxa > 0
-    assert cotacao.fonte.tipo == "mock"
+    provider = MockExchangeRateProvider()
+    rate = await provider.get_rate(ExchangeCriteria(source_currency="EUR", target_currency="BRL"))
+    assert rate is not None
+    assert rate.rate > 0
+    assert rate.source.type == "mock"
 
 
 @pytest.mark.asyncio
 async def test_cambio_mesma_moeda_taxa_um():
-    provider = ExchangeRateProviderMock()
-    cotacao = await provider.cotar(CriteriosCambio(moeda_origem="BRL", moeda_destino="BRL"))
-    assert cotacao.taxa == 1
+    provider = MockExchangeRateProvider()
+    rate = await provider.get_rate(ExchangeCriteria(source_currency="BRL", target_currency="BRL"))
+    assert rate.rate == 1

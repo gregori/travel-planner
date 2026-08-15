@@ -1,0 +1,22 @@
+{
+  "lisboa": [
+    {"title": "Torre de Belém", "description": "Monumento histórico à beira-rio, fácil acesso e pouca caminhada.", "region": "Belém", "duration_min": 90, "estimated_cost": 6, "interests": ["cultural", "historia", "familia"]},
+    {"title": "Oceanário de Lisboa", "description": "Aquário premiado, ótimo para crianças.", "region": "Parque das Nações", "duration_min": 150, "estimated_cost": 22, "interests": ["familia", "natureza"]},
+    {"title": "Castelo de São Jorge", "description": "Vista panorâmica da cidade, terreno com escadas.", "region": "Alfama", "duration_min": 120, "estimated_cost": 15, "interests": ["cultural", "historia"]},
+    {"title": "Passeio de elétrico 28", "description": "Passeio turístico clássico de bonde pelos bairros históricos.", "region": "Alfama", "duration_min": 60, "estimated_cost": 3, "interests": ["familia", "cultural"]},
+    {"title": "Mosteiro dos Jerónimos", "description": "Patrimônio da UNESCO, arquitetura manuelina.", "region": "Belém", "duration_min": 90, "estimated_cost": 10, "interests": ["cultural", "historia"]},
+    {"title": "Praia de Carcavelos", "description": "Praia familiar a 30min do centro, tarde tranquila.", "region": "Cascais", "duration_min": 180, "estimated_cost": 0, "interests": ["familia", "descanso"]}
+  ],
+  "paris": [
+    {"title": "Cruzeiro romântico no Sena ao pôr do sol", "description": "Passeio de barco com vista da Torre Eiffel iluminada.", "region": "Champ de Mars", "duration_min": 90, "estimated_cost": 45, "interests": ["romantica", "gastronomia"]},
+    {"title": "Museu do Louvre", "description": "Acervo de arte clássica, reserve meio período.", "region": "1er Arrondissement", "duration_min": 180, "estimated_cost": 22, "interests": ["cultural"]},
+    {"title": "Passeio por Montmartre e Sacré-Cœur", "description": "Ruas boêmias, ateliês de artistas e vista da cidade.", "region": "Montmartre", "duration_min": 120, "estimated_cost": 0, "interests": ["romantica", "cultural"]},
+    {"title": "Aula de degustação de vinhos e queijos", "description": "Experiência guiada com harmonização francesa.", "region": "Le Marais", "duration_min": 90, "estimated_cost": 60, "interests": ["gastronomia", "romantica"]}
+  ],
+  "florianopolis": [
+    {"title": "Trilha e mirante da Lagoinha do Leste", "description": "Trilha moderada com praia preservada ao final.", "region": "Sul da Ilha", "duration_min": 240, "estimated_cost": 0, "interests": ["natureza", "aventura"]},
+    {"title": "Passeio pela Lagoa da Conceição", "description": "Bares, stand-up paddle e pôr do sol.", "region": "Lagoa da Conceição", "duration_min": 150, "estimated_cost": 40, "interests": ["natureza", "descanso"]},
+    {"title": "Mercado Público de Florianópolis", "description": "Gastronomia local e artesanato a preços acessíveis.", "region": "Centro", "duration_min": 90, "estimated_cost": 0, "interests": ["gastronomia", "cultural"]},
+    {"title": "Praia da Joaquina", "description": "Dunas e surf, boa opção de custo zero.", "region": "Joaquina", "duration_min": 180, "estimated_cost": 0, "interests": ["natureza", "aventura"]}
+  ]
+}

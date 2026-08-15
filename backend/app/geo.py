@@ -9,73 +9,73 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class InfoDestino:
-    moeda: str
-    hemisferio: str  # "norte" | "sul"
-    tomada: str
+class DestinationInfo:
+    currency: str
+    hemisphere: str  # "north" | "south"
+    outlet: str
 
 
-MOEDA_PADRAO_NACIONAL = "BRL"
+DEFAULT_DOMESTIC_CURRENCY = "BRL"
 
-_INFO_POR_DESTINO: dict[str, InfoDestino] = {
-    "lisboa": InfoDestino("EUR", "norte", "tipo C/F (230V, dois pinos redondos)"),
-    "portugal": InfoDestino("EUR", "norte", "tipo C/F (230V, dois pinos redondos)"),
-    "porto": InfoDestino("EUR", "norte", "tipo C/F (230V, dois pinos redondos)"),
-    "paris": InfoDestino("EUR", "norte", "tipo C/E (230V, dois pinos redondos)"),
-    "franca": InfoDestino("EUR", "norte", "tipo C/E (230V, dois pinos redondos)"),
-    "france": InfoDestino("EUR", "norte", "tipo C/E (230V, dois pinos redondos)"),
-    "roma": InfoDestino("EUR", "norte", "tipo C/F/L (230V, dois ou três pinos redondos)"),
-    "italia": InfoDestino("EUR", "norte", "tipo C/F/L (230V, dois ou três pinos redondos)"),
-    "madri": InfoDestino("EUR", "norte", "tipo C/F (230V, dois pinos redondos)"),
-    "madrid": InfoDestino("EUR", "norte", "tipo C/F (230V, dois pinos redondos)"),
-    "espanha": InfoDestino("EUR", "norte", "tipo C/F (230V, dois pinos redondos)"),
-    "londres": InfoDestino("GBP", "norte", "tipo G (230V, três pinos retangulares)"),
-    "reino unido": InfoDestino("GBP", "norte", "tipo G (230V, três pinos retangulares)"),
-    "nova york": InfoDestino("USD", "norte", "tipo A/B (120V, pinos chatos)"),
-    "new york": InfoDestino("USD", "norte", "tipo A/B (120V, pinos chatos)"),
-    "eua": InfoDestino("USD", "norte", "tipo A/B (120V, pinos chatos)"),
-    "estados unidos": InfoDestino("USD", "norte", "tipo A/B (120V, pinos chatos)"),
-    "miami": InfoDestino("USD", "norte", "tipo A/B (120V, pinos chatos)"),
-    "orlando": InfoDestino("USD", "norte", "tipo A/B (120V, pinos chatos)"),
-    "buenos aires": InfoDestino("ARS", "sul", "tipo C/I (220V)"),
-    "argentina": InfoDestino("ARS", "sul", "tipo C/I (220V)"),
-    "santiago": InfoDestino("CLP", "sul", "tipo C/L (220V)"),
-    "chile": InfoDestino("CLP", "sul", "tipo C/L (220V)"),
-    "lima": InfoDestino("PEN", "sul", "tipo A/C (220V)"),
-    "peru": InfoDestino("PEN", "sul", "tipo A/C (220V)"),
-    "tokyo": InfoDestino("JPY", "norte", "tipo A/B (100V, pinos chatos)"),
-    "toquio": InfoDestino("JPY", "norte", "tipo A/B (100V, pinos chatos)"),
-    "japao": InfoDestino("JPY", "norte", "tipo A/B (100V, pinos chatos)"),
+_INFO_BY_DESTINATION: dict[str, DestinationInfo] = {
+    "lisboa": DestinationInfo("EUR", "north", "tipo C/F (230V, dois pinos redondos)"),
+    "portugal": DestinationInfo("EUR", "north", "tipo C/F (230V, dois pinos redondos)"),
+    "porto": DestinationInfo("EUR", "north", "tipo C/F (230V, dois pinos redondos)"),
+    "paris": DestinationInfo("EUR", "north", "tipo C/E (230V, dois pinos redondos)"),
+    "franca": DestinationInfo("EUR", "north", "tipo C/E (230V, dois pinos redondos)"),
+    "france": DestinationInfo("EUR", "north", "tipo C/E (230V, dois pinos redondos)"),
+    "roma": DestinationInfo("EUR", "north", "tipo C/F/L (230V, dois ou três pinos redondos)"),
+    "italia": DestinationInfo("EUR", "north", "tipo C/F/L (230V, dois ou três pinos redondos)"),
+    "madri": DestinationInfo("EUR", "north", "tipo C/F (230V, dois pinos redondos)"),
+    "madrid": DestinationInfo("EUR", "north", "tipo C/F (230V, dois pinos redondos)"),
+    "espanha": DestinationInfo("EUR", "north", "tipo C/F (230V, dois pinos redondos)"),
+    "londres": DestinationInfo("GBP", "north", "tipo G (230V, três pinos retangulares)"),
+    "reino unido": DestinationInfo("GBP", "north", "tipo G (230V, três pinos retangulares)"),
+    "nova york": DestinationInfo("USD", "north", "tipo A/B (120V, pinos chatos)"),
+    "new york": DestinationInfo("USD", "north", "tipo A/B (120V, pinos chatos)"),
+    "eua": DestinationInfo("USD", "north", "tipo A/B (120V, pinos chatos)"),
+    "estados unidos": DestinationInfo("USD", "north", "tipo A/B (120V, pinos chatos)"),
+    "miami": DestinationInfo("USD", "north", "tipo A/B (120V, pinos chatos)"),
+    "orlando": DestinationInfo("USD", "north", "tipo A/B (120V, pinos chatos)"),
+    "buenos aires": DestinationInfo("ARS", "south", "tipo C/I (220V)"),
+    "argentina": DestinationInfo("ARS", "south", "tipo C/I (220V)"),
+    "santiago": DestinationInfo("CLP", "south", "tipo C/L (220V)"),
+    "chile": DestinationInfo("CLP", "south", "tipo C/L (220V)"),
+    "lima": DestinationInfo("PEN", "south", "tipo A/C (220V)"),
+    "peru": DestinationInfo("PEN", "south", "tipo A/C (220V)"),
+    "tokyo": DestinationInfo("JPY", "north", "tipo A/B (100V, pinos chatos)"),
+    "toquio": DestinationInfo("JPY", "north", "tipo A/B (100V, pinos chatos)"),
+    "japao": DestinationInfo("JPY", "north", "tipo A/B (100V, pinos chatos)"),
 }
 
-_INFO_PADRAO_BRASIL = InfoDestino("BRL", "sul", "tipo N (127V/220V conforme o estado)")
+_DEFAULT_BRAZIL_INFO = DestinationInfo("BRL", "south", "tipo N (127V/220V conforme o estado)")
 
 
-def _slug(texto: str) -> str:
-    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().strip().lower()
+def _slug(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().strip().lower()
 
 
-def _info_destino(destino: str) -> InfoDestino:
-    destino_slug = _slug(destino)
-    for chave, info in _INFO_POR_DESTINO.items():
-        if chave in destino_slug:
+def _destination_info(destination: str) -> DestinationInfo:
+    destination_slug = _slug(destination)
+    for key, info in _INFO_BY_DESTINATION.items():
+        if key in destination_slug:
             return info
-    return _INFO_PADRAO_BRASIL
+    return _DEFAULT_BRAZIL_INFO
 
 
-def moeda_do_destino(destino: str) -> str:
-    return _info_destino(destino).moeda
+def currency_for_destination(destination: str) -> str:
+    return _destination_info(destination).currency
 
 
-def eh_internacional(destino: str, moeda_orcamento: str = MOEDA_PADRAO_NACIONAL) -> bool:
-    return moeda_do_destino(destino) != moeda_orcamento
+def is_international(destination: str, budget_currency: str = DEFAULT_DOMESTIC_CURRENCY) -> bool:
+    return currency_for_destination(destination) != budget_currency
 
 
-def tomada_do_destino(destino: str) -> str:
-    return _info_destino(destino).tomada
+def outlet_for_destination(destination: str) -> str:
+    return _destination_info(destination).outlet
 
 
-_ESTACAO_POR_MES_HEMISFERIO_SUL = {
+_SEASON_BY_MONTH_SOUTHERN_HEMISPHERE = {
     12: "verão",
     1: "verão",
     2: "verão",
@@ -89,7 +89,7 @@ _ESTACAO_POR_MES_HEMISFERIO_SUL = {
     10: "primavera",
     11: "primavera",
 }
-_ESTACAO_POR_MES_HEMISFERIO_NORTE = {
+_SEASON_BY_MONTH_NORTHERN_HEMISPHERE = {
     12: "inverno",
     1: "inverno",
     2: "inverno",
@@ -104,14 +104,14 @@ _ESTACAO_POR_MES_HEMISFERIO_NORTE = {
     11: "outono",
 }
 
-_DESCRICAO_ESTACAO = {
+_SEASON_DESCRIPTION = {
     "verão": "dias quentes; leve roupas leves e protetor solar",
     "inverno": "temperaturas baixas; leve casacos e roupas em camadas",
     "outono": "temperaturas amenas e possibilidade de chuva; leve um casaco leve",
     "primavera": "clima ameno e variável; leve roupas em camadas",
 }
 
-_NOME_MES_PARA_NUMERO = {
+_MONTH_NAME_TO_NUMBER = {
     "janeiro": 1,
     "fevereiro": 2,
     "março": 3,
@@ -128,24 +128,30 @@ _NOME_MES_PARA_NUMERO = {
 }
 
 
-def estacao_do_ano(destino: str, mes_numero: int | None) -> str | None:
-    if mes_numero is None:
+def season_for_month(destination: str, month_number: int | None) -> str | None:
+    if month_number is None:
         return None
-    hemisferio = _info_destino(destino).hemisferio
-    tabela = _ESTACAO_POR_MES_HEMISFERIO_SUL if hemisferio == "sul" else _ESTACAO_POR_MES_HEMISFERIO_NORTE
-    return tabela.get(mes_numero)
+    hemisphere = _destination_info(destination).hemisphere
+    table = (
+        _SEASON_BY_MONTH_SOUTHERN_HEMISPHERE
+        if hemisphere == "south"
+        else _SEASON_BY_MONTH_NORTHERN_HEMISPHERE
+    )
+    return table.get(month_number)
 
 
-def descricao_clima_heuristica(destino: str, mes_referencia: str | None, mes_numero: int | None) -> str:
+def heuristic_weather_description(
+    destination: str, reference_month: str | None, month_number: int | None
+) -> str:
     """Estimativa heurística de clima por estação do ano — não é previsão
     meteorológica real; o checklist deixa isso explícito (RF-27)."""
-    numero = mes_numero or (_NOME_MES_PARA_NUMERO.get(_slug(mes_referencia)) if mes_referencia else None)
-    estacao = estacao_do_ano(destino, numero)
-    periodo = mes_referencia or "o período da viagem"
-    if estacao is None:
-        return f"Não foi possível estimar a estação em {periodo}; consulte a previsão perto da data."
-    descricao = _DESCRICAO_ESTACAO[estacao]
+    number = month_number or (_MONTH_NAME_TO_NUMBER.get(_slug(reference_month)) if reference_month else None)
+    season = season_for_month(destination, number)
+    period = reference_month or "o período da viagem"
+    if season is None:
+        return f"Não foi possível estimar a estação em {period}; consulte a previsão perto da data."
+    description = _SEASON_DESCRIPTION[season]
     return (
-        f"Em {periodo}, {destino} deve estar em {estacao} — {descricao} "
+        f"Em {period}, {destination} deve estar em {season} — {description} "
         "(estimativa por estação, não é previsão do tempo)."
     )

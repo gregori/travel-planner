@@ -4,72 +4,72 @@ from datetime import timedelta
 from decimal import Decimal
 
 from app.models.brief import TripBrief
-from app.models.plan import Atividade, Deslocamento, DiaItinerario, SugestaoRefeicao
+from app.models.plan import Activity, ItineraryDay, MealSuggestion, Transfer
 
-MAX_ATIVIDADES_POR_RITMO = {"leve": 2, "moderado": 3, "intenso": 4}
-MAX_ATIVIDADES_RESTRITO = 2  # RF-22: crianças ou mobilidade reduzida
-
-
-def _slug(texto: str) -> str:
-    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().strip().lower()
+MAX_ACTIVITIES_BY_PACE = {"light": 2, "moderate": 3, "intense": 4}
+MAX_ACTIVITIES_RESTRICTED = 2  # RF-22: crianças ou mobilidade reduzida
 
 
-def _max_atividades_principais(brief: TripBrief) -> int:
-    if brief.tem_criancas or brief.restricoes_mobilidade:
-        return MAX_ATIVIDADES_RESTRITO
-    return MAX_ATIVIDADES_POR_RITMO.get(brief.ritmo, 3)
+def _slug(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().strip().lower()
 
 
-def _atividade_livre(regiao: str) -> Atividade:
-    return Atividade(
-        titulo="Tempo livre / descanso",
-        descricao="Sem atração específica encontrada para este bloco — aproveite para explorar "
+def _max_main_activities(brief: TripBrief) -> int:
+    if brief.has_children or brief.mobility_restrictions:
+        return MAX_ACTIVITIES_RESTRICTED
+    return MAX_ACTIVITIES_BY_PACE.get(brief.pace, 3)
+
+
+def _free_activity(region: str) -> Activity:
+    return Activity(
+        title="Tempo livre / descanso",
+        description="Sem atração específica encontrada para este bloco — aproveite para explorar "
         "por conta própria ou descansar.",
-        regiao=regiao,
-        duracao_min=None,
-        custo_estimado=Decimal("0"),
-        fonte=None,
+        region=region,
+        duration_min=None,
+        estimated_cost=Decimal("0"),
+        source=None,
     )
 
 
-def _tomar_ate(disponiveis: list[Atividade], n: int) -> list[Atividade]:
+def _take_up_to(available: list[Activity], n: int) -> list[Activity]:
     """Consome (pop) até `n` atividades da lista compartilhada da região, para
     que não sejam reaproveitadas em outro dia."""
-    escolhidas: list[Atividade] = []
-    for _ in range(min(n, len(disponiveis))):
-        escolhidas.append(disponiveis.pop(0))
-    return escolhidas
+    chosen: list[Activity] = []
+    for _ in range(min(n, len(available))):
+        chosen.append(available.pop(0))
+    return chosen
 
 
-def _tomar_refeicao(refeicoes: list[SugestaoRefeicao], regiao: str) -> list[Atividade]:
+def _take_meal(meals: list[MealSuggestion], region: str) -> list[Activity]:
     """Escolhe uma refeição para o dia, preferindo uma cuja localização real
     bata com a região do dia (RF-21: coerência geográfica) — só cai para a
     próxima disponível se nenhuma refeição estiver naquela região."""
-    if not refeicoes:
+    if not meals:
         return []
-    regiao_slug = _slug(regiao)
-    indice = next(
-        (i for i, r in enumerate(refeicoes) if r.localizacao and regiao_slug in _slug(r.localizacao)),
+    region_slug = _slug(region)
+    index = next(
+        (i for i, m in enumerate(meals) if m.location and region_slug in _slug(m.location)),
         0,
     )
-    ref = refeicoes.pop(indice)
+    meal = meals.pop(index)
     return [
-        Atividade(
-            titulo=f"Jantar: {ref.nome}",
-            descricao=f"{ref.compatibilidade} ({ref.localizacao or regiao})",
-            regiao=regiao,
-            custo_estimado=Decimal("0"),
-            fonte=ref.fonte,
+        Activity(
+            title=f"Jantar: {meal.name}",
+            description=f"{meal.compatibility} ({meal.location or region})",
+            region=region,
+            estimated_cost=Decimal("0"),
+            source=meal.source,
         )
     ]
 
 
-def montar_itinerario(
+def build_itinerary(
     brief: TripBrief,
-    dias_total: int,
-    atividades_pool: list[Atividade],
-    refeicoes_pool: list[SugestaoRefeicao],
-) -> list[DiaItinerario]:
+    total_days: int,
+    activity_pool: list[Activity],
+    meal_pool: list[MealSuggestion],
+) -> list[ItineraryDay]:
     """Constrói o itinerário dia a dia (RF-20..23).
 
     - Agrupa atividades do mesmo dia por região (RF-21).
@@ -77,85 +77,85 @@ def montar_itinerario(
     - Reserva os dias de chegada/partida para logística, sem sobrepor
       atrações a check-in/check-out/deslocamento ao aeroporto (RF-23).
     """
-    max_principais = _max_atividades_principais(brief)
+    max_main = _max_main_activities(brief)
 
-    por_regiao: dict[str, list[Atividade]] = defaultdict(list)
-    for a in atividades_pool:
-        por_regiao[a.regiao or "Centro"].append(a)
-    regioes_disponiveis = list(por_regiao.keys()) or ["Centro"]
+    by_region: dict[str, list[Activity]] = defaultdict(list)
+    for a in activity_pool:
+        by_region[a.region or "Centro"].append(a)
+    available_regions = list(by_region.keys()) or ["Centro"]
 
-    refeicoes_restantes = list(refeicoes_pool)
-    data_base = brief.data_ida
+    remaining_meals = list(meal_pool)
+    base_date = brief.start_date
 
-    dias: list[DiaItinerario] = []
-    for indice_dia in range(1, dias_total + 1):
-        eh_chegada = indice_dia == 1
-        eh_partida = indice_dia == dias_total and dias_total > 1
-        regiao_do_dia = regioes_disponiveis[(indice_dia - 1) % len(regioes_disponiveis)]
-        disponiveis = por_regiao.get(regiao_do_dia, [])
+    days: list[ItineraryDay] = []
+    for day_index in range(1, total_days + 1):
+        is_arrival = day_index == 1
+        is_departure = day_index == total_days and total_days > 1
+        day_region = available_regions[(day_index - 1) % len(available_regions)]
+        available = by_region.get(day_region, [])
 
-        manha: list[Atividade] = []
-        tarde: list[Atividade] = []
-        noite: list[Atividade] = []
-        deslocamentos: list[Deslocamento] = []
-        observacao = None
+        morning: list[Activity] = []
+        afternoon: list[Activity] = []
+        evening: list[Activity] = []
+        transfers: list[Transfer] = []
+        note = None
 
-        if eh_chegada:
-            manha = [
-                Atividade(
-                    titulo="Chegada e check-in",
-                    descricao="Desembarque, deslocamento ao aeroporto/estação e check-in na "
+        if is_arrival:
+            morning = [
+                Activity(
+                    title="Chegada e check-in",
+                    description="Desembarque, deslocamento ao aeroporto/estação e check-in na "
                     "hospedagem. Sem atividades agendadas para não conflitar com o voo (RF-23).",
-                    regiao=regiao_do_dia,
-                    custo_estimado=Decimal("0"),
+                    region=day_region,
+                    estimated_cost=Decimal("0"),
                 )
             ]
-            tarde = _tomar_ate(disponiveis, 1) or [_atividade_livre(regiao_do_dia)]
-            noite = _tomar_refeicao(refeicoes_restantes, regiao_do_dia) or [_atividade_livre(regiao_do_dia)]
-            observacao = "Dia de chegada: ritmo leve para absorver o deslocamento (RF-23)."
-        elif eh_partida:
-            manha = _tomar_ate(disponiveis, 1) or [_atividade_livre(regiao_do_dia)]
-            tarde = [
-                Atividade(
-                    titulo="Checkout e deslocamento ao aeroporto",
-                    descricao="Checkout da hospedagem e deslocamento com margem de segurança "
+            afternoon = _take_up_to(available, 1) or [_free_activity(day_region)]
+            evening = _take_meal(remaining_meals, day_region) or [_free_activity(day_region)]
+            note = "Dia de chegada: ritmo leve para absorver o deslocamento (RF-23)."
+        elif is_departure:
+            morning = _take_up_to(available, 1) or [_free_activity(day_region)]
+            afternoon = [
+                Activity(
+                    title="Checkout e deslocamento ao aeroporto",
+                    description="Checkout da hospedagem e deslocamento com margem de segurança "
                     "para o horário do voo de volta (RF-23).",
-                    regiao=regiao_do_dia,
-                    custo_estimado=Decimal("0"),
+                    region=day_region,
+                    estimated_cost=Decimal("0"),
                 )
             ]
-            noite = []
-            observacao = "Dia de partida: sem atividades à noite para não conflitar com o voo (RF-23)."
+            evening = []
+            note = "Dia de partida: sem atividades à noite para não conflitar com o voo (RF-23)."
         else:
-            principais = _tomar_ate(disponiveis, max_principais)
-            if not principais:
-                principais = [_atividade_livre(regiao_do_dia)]
-            metade = max(1, len(principais) // 2) if len(principais) > 1 else len(principais)
-            manha = principais[:metade] or [_atividade_livre(regiao_do_dia)]
-            tarde = principais[metade:] or []
-            noite = _tomar_refeicao(refeicoes_restantes, regiao_do_dia) or [_atividade_livre(regiao_do_dia)]
-            if brief.tem_criancas or brief.restricoes_mobilidade:
-                observacao = "Ritmo ajustado: pausa explícita à tarde entre as atividades (RF-22)."
+            main_activities = _take_up_to(available, max_main)
+            if not main_activities:
+                main_activities = [_free_activity(day_region)]
+            half = max(1, len(main_activities) // 2) if len(main_activities) > 1 else len(main_activities)
+            morning = main_activities[:half] or [_free_activity(day_region)]
+            afternoon = main_activities[half:] or []
+            evening = _take_meal(remaining_meals, day_region) or [_free_activity(day_region)]
+            if brief.has_children or brief.mobility_restrictions:
+                note = "Ritmo ajustado: pausa explícita à tarde entre as atividades (RF-22)."
 
-        if manha and tarde:
-            deslocamentos.append(Deslocamento(de_bloco="manha", para_bloco="tarde", duracao_min=20))
-        if tarde and noite:
-            deslocamentos.append(Deslocamento(de_bloco="tarde", para_bloco="noite", duracao_min=20))
+        if morning and afternoon:
+            transfers.append(Transfer(from_block="morning", to_block="afternoon", duration_min=20))
+        if afternoon and evening:
+            transfers.append(Transfer(from_block="afternoon", to_block="evening", duration_min=20))
 
-        custo_dia = sum((a.custo_estimado for a in manha + tarde + noite), Decimal("0"))
+        day_cost = sum((a.estimated_cost for a in morning + afternoon + evening), Decimal("0"))
 
-        dias.append(
-            DiaItinerario(
-                dia=indice_dia,
-                data=(data_base + timedelta(days=indice_dia - 1)) if data_base else None,
-                regiao=regiao_do_dia,
-                manha=manha,
-                tarde=tarde,
-                noite=noite,
-                deslocamentos=deslocamentos,
-                custo_estimado_dia=custo_dia,
-                observacao=observacao,
+        days.append(
+            ItineraryDay(
+                day=day_index,
+                date=(base_date + timedelta(days=day_index - 1)) if base_date else None,
+                region=day_region,
+                morning=morning,
+                afternoon=afternoon,
+                evening=evening,
+                transfers=transfers,
+                estimated_day_cost=day_cost,
+                note=note,
             )
         )
 
-    return dias
+    return days

@@ -1,22 +1,22 @@
 import logging
 
 from app.config import Settings
-from app.models.plan import CotacaoCambio
+from app.models.plan import ExchangeRate
 from app.providers.base import (
-    CriteriosAtracoes,
-    CriteriosCambio,
-    CriteriosHospedagem,
-    CriteriosRestaurantes,
-    CriteriosVoo,
-    ResultadoBusca,
+    AccommodationCriteria,
+    AttractionsCriteria,
+    ExchangeCriteria,
+    FlightCriteria,
+    RestaurantsCriteria,
+    SearchResult,
 )
 from app.providers.circuit_breaker import CircuitBreaker
 from app.providers.mock import (
-    ExchangeRateProviderMock,
-    MockAtracoesProvider,
-    MockHospedagemProvider,
-    MockRestaurantesProvider,
-    WebFlightEstimatorMock,
+    MockAccommodationProvider,
+    MockAttractionsProvider,
+    MockExchangeRateProvider,
+    MockFlightEstimator,
+    MockRestaurantsProvider,
 )
 from app.providers.real import BookingProvider, ExchangeRateProvider, TripadvisorProvider
 
@@ -27,12 +27,12 @@ class ProviderRegistry:
     """Seleciona provedor real ou mock em runtime (RF-16, §10).
 
     Credencial presente e provedor saudável (circuit breaker fechado) → real.
-    Caso contrário → mock, com aviso propagado para `TripPlan.avisos`.
+    Caso contrário → mock, com aviso propagado para `TripPlan.warnings`.
     """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._breaker = CircuitBreaker(limite_falhas=3, janela_segundos=300.0)
+        self._breaker = CircuitBreaker(failure_threshold=3, window_seconds=300.0)
 
         self._booking_real = BookingProvider(settings.booking_api_key) if settings.booking_api_key else None
         self._tripadvisor_real = (
@@ -42,96 +42,96 @@ class ProviderRegistry:
             ExchangeRateProvider(settings.exchange_api_url) if settings.exchange_api_url else None
         )
 
-        self._hospedagem_mock = MockHospedagemProvider()
-        self._atracoes_mock = MockAtracoesProvider()
-        self._restaurantes_mock = MockRestaurantesProvider()
-        self._voos = WebFlightEstimatorMock()
-        self._cambio_mock = ExchangeRateProviderMock()
+        self._accommodation_mock = MockAccommodationProvider()
+        self._attractions_mock = MockAttractionsProvider()
+        self._restaurants_mock = MockRestaurantsProvider()
+        self._flights = MockFlightEstimator()
+        self._exchange_mock = MockExchangeRateProvider()
 
-    async def buscar_hospedagem(self, criterios: CriteriosHospedagem, avisos: list[str]) -> ResultadoBusca:
-        return await self._com_fallback(
+    async def search_accommodation(
+        self, criteria: AccommodationCriteria, warnings: list[str]
+    ) -> SearchResult:
+        return await self._with_fallback(
             "booking",
             self._booking_real,
-            lambda p: p.buscar(criterios),
-            lambda: self._hospedagem_mock.buscar(criterios),
-            avisos,
+            lambda p: p.search(criteria),
+            lambda: self._accommodation_mock.search(criteria),
+            warnings,
         )
 
-    async def buscar_atracoes(self, criterios: CriteriosAtracoes, avisos: list[str]) -> ResultadoBusca:
-        return await self._com_fallback(
+    async def search_attractions(self, criteria: AttractionsCriteria, warnings: list[str]) -> SearchResult:
+        return await self._with_fallback(
             "tripadvisor",
             self._tripadvisor_real,
-            lambda p: p.buscar_atracoes(criterios),
-            lambda: self._atracoes_mock.buscar(criterios),
-            avisos,
+            lambda p: p.search_attractions(criteria),
+            lambda: self._attractions_mock.search(criteria),
+            warnings,
         )
 
-    async def buscar_restaurantes(
-        self, criterios: CriteriosRestaurantes, avisos: list[str]
-    ) -> ResultadoBusca:
-        return await self._com_fallback(
+    async def search_restaurants(self, criteria: RestaurantsCriteria, warnings: list[str]) -> SearchResult:
+        return await self._with_fallback(
             "tripadvisor",
             self._tripadvisor_real,
-            lambda p: p.buscar_restaurantes(criterios),
-            lambda: self._restaurantes_mock.buscar(criterios),
-            avisos,
+            lambda p: p.search_restaurants(criteria),
+            lambda: self._restaurants_mock.search(criteria),
+            warnings,
         )
 
-    async def estimar_voos(self, criterios: CriteriosVoo, avisos: list[str]) -> ResultadoBusca:
-        # RF-12: voos são sempre "estimativa" — não há modo "real" nesta camada.
-        return await self._voos.estimar(criterios)
+    async def estimate_flights(self, criteria: FlightCriteria, warnings: list[str]) -> SearchResult:
+        # RF-12: voos são sempre "estimate" — não há modo "real" nesta camada.
+        return await self._flights.estimate(criteria)
 
-    async def cotar_cambio(self, criterios: CriteriosCambio, avisos: list[str]) -> CotacaoCambio | None:
-        resultado = await self._com_fallback(
+    async def get_exchange_rate(self, criteria: ExchangeCriteria, warnings: list[str]) -> ExchangeRate | None:
+        result = await self._with_fallback(
             "exchange-api",
             self._exchange_real,
-            lambda p: p.cotar(criterios),
-            lambda: self._cambio_mock.cotar(criterios),
-            avisos,
-            singular=True,
+            lambda p: p.get_rate(criteria),
+            lambda: self._exchange_mock.get_rate(criteria),
+            warnings,
+            single=True,
         )
-        return resultado
+        return result
 
-    def status_provedores(self) -> dict[str, str]:
-        """Status para /api/health: real | degradado | indisponivel | mock."""
-        resultado: dict[str, str] = {}
-        for nome, real in (
+    def provider_status(self) -> dict[str, str]:
+        """Status para /api/health: real | unavailable | mock."""
+        result: dict[str, str] = {}
+        for name, real in (
             ("booking", self._booking_real),
             ("tripadvisor", self._tripadvisor_real),
             ("exchange-api", self._exchange_real),
         ):
             if real is None:
-                resultado[nome] = "mock"
-            elif not self._breaker.disponivel(nome):
-                resultado[nome] = "indisponivel"
+                result[name] = "mock"
+            elif not self._breaker.is_available(name):
+                result[name] = "unavailable"
             else:
-                resultado[nome] = "real"
-        resultado["voos"] = "estimativa"
-        return resultado
+                result[name] = "real"
+        result["flights"] = "estimate"
+        return result
 
-    async def _com_fallback(
+    async def _with_fallback(
         self,
-        nome_provedor: str,
-        provedor_real,
-        chamar_real,
-        chamar_mock,
-        avisos: list[str],
-        singular: bool = False,
+        provider_name: str,
+        real_provider,
+        call_real,
+        call_mock,
+        warnings: list[str],
+        single: bool = False,
     ):
-        if provedor_real is not None and self._breaker.disponivel(nome_provedor):
+        if real_provider is not None and self._breaker.is_available(provider_name):
             try:
-                resultado = await chamar_real(provedor_real)
-                self._breaker.registrar_sucesso(nome_provedor)
-                return resultado
+                result = await call_real(real_provider)
+                self._breaker.record_success(provider_name)
+                return result
             except Exception as exc:  # noqa: BLE001 - fallback intencional (RNF-06)
-                logger.warning("provedor real '%s' falhou: %s", nome_provedor, exc)
-                self._breaker.registrar_falha(nome_provedor)
-                avisos.append(f"Provedor {nome_provedor} indisponível no momento; usando dados simulados.")
-        elif provedor_real is not None:
-            avisos.append(
-                f"Provedor {nome_provedor} temporariamente desativado (falhas recentes); "
+                logger.warning("provedor real '%s' falhou: %s", provider_name, exc)
+                self._breaker.record_failure(provider_name)
+                warnings.append(f"Provedor {provider_name} indisponível no momento; usando dados simulados.")
+        elif real_provider is not None:
+            warnings.append(
+                f"Provedor {provider_name} temporariamente desativado (falhas recentes); "
                 "usando dados simulados."
             )
         else:
-            avisos.append(f"Sem credencial configurada para {nome_provedor}; usando dados simulados.")
-        return await chamar_mock()
+            warnings.append(f"Sem credencial configurada para {provider_name}; usando dados simulados.")
+        return await call_mock()

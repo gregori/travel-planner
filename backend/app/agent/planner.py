@@ -1,73 +1,73 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from app.agent.budget import calcular_orcamento
-from app.agent.itinerary import montar_itinerario
+from app.agent.budget import calculate_budget
+from app.agent.itinerary import build_itinerary
 from app.agent.tools import (
     AgentContext,
-    buscar_atracoes_cacheada,
-    buscar_hospedagem_cacheada,
-    buscar_restaurantes_cacheada,
-    cotar_cambio_cacheado,
-    estimar_voos_cacheado,
-    tool_info_pratica,
+    estimate_flights_cached,
+    get_exchange_rate_cached,
+    search_accommodation_cached,
+    search_attractions_cached,
+    search_restaurants_cached,
+    tool_practical_info,
 )
-from app.geo import eh_internacional, moeda_do_destino
-from app.models.common import Fonte
+from app.geo import currency_for_destination, is_international
+from app.models.common import Source
 from app.models.plan import Checklist, TripPlan
 
-ALIMENTACAO_DIARIA_POR_PESSOA = Decimal("120")
-TRANSPORTE_LOCAL_DIARIO_POR_PESSOA = Decimal("30")
+DAILY_FOOD_PER_PERSON = Decimal("120")
+DAILY_LOCAL_TRANSPORT_PER_PERSON = Decimal("30")
 
 
-def _perfil(brief) -> str:
-    partes = [brief.tipo_viagem or "geral"]
-    if brief.tem_criancas:
-        partes.append("com crianças")
-    if brief.restricoes_mobilidade:
-        partes.append("mobilidade reduzida")
-    return ", ".join(partes)
+def _profile(brief) -> str:
+    parts = [brief.trip_type or "geral"]
+    if brief.has_children:
+        parts.append("com crianças")
+    if brief.mobility_restrictions:
+        parts.append("mobilidade reduzida")
+    return ", ".join(parts)
 
 
-def _converter(valor: Decimal, moeda_origem: str, moeda_destino: str, taxa: Decimal | None) -> Decimal:
-    if moeda_origem == moeda_destino or valor == 0:
-        return valor
-    if taxa is not None:
-        return valor * taxa
-    return valor
+def _convert(value: Decimal, source_currency: str, target_currency: str, rate: Decimal | None) -> Decimal:
+    if source_currency == target_currency or value == 0:
+        return value
+    if rate is not None:
+        return value * rate
+    return value
 
 
-def _fonte_heuristica(observacao: str) -> Fonte:
-    return Fonte(
-        tipo="estimativa",
-        provedor="heuristica",
+def _heuristic_source(note: str) -> Source:
+    return Source(
+        type="estimate",
+        provider="heuristica",
         url=None,
-        consultado_em=datetime.now(UTC),
-        confianca="baixa",
-        observacao=observacao,
+        retrieved_at=datetime.now(UTC),
+        confidence="low",
+        note=note,
     )
 
 
-def _converter_itinerario_para_moeda_exibicao(
-    itinerario, moeda_exibicao: str, taxa_cambio: Decimal | None
+def _convert_itinerary_to_display_currency(
+    itinerary, display_currency: str, exchange_rate: Decimal | None
 ) -> None:
     """Converte o custo de cada atividade do pool (potencialmente na moeda do
     destino) para a moeda de exibição, para que o orçamento e o itinerário
     fiquem consistentes numa única moeda (RF-13)."""
-    for dia in itinerario:
-        for bloco in (dia.manha, dia.tarde, dia.noite):
-            for atividade in bloco:
-                if atividade.custo_estimado > 0 and atividade.moeda != moeda_exibicao:
-                    atividade.custo_estimado = _converter(
-                        atividade.custo_estimado, atividade.moeda, moeda_exibicao, taxa_cambio
+    for day in itinerary:
+        for block in (day.morning, day.afternoon, day.evening):
+            for activity in block:
+                if activity.estimated_cost > 0 and activity.currency != display_currency:
+                    activity.estimated_cost = _convert(
+                        activity.estimated_cost, activity.currency, display_currency, exchange_rate
                     )
-                    atividade.moeda = moeda_exibicao
-        dia.custo_estimado_dia = sum(
-            (a.custo_estimado for a in dia.manha + dia.tarde + dia.noite), Decimal("0")
+                    activity.currency = display_currency
+        day.estimated_day_cost = sum(
+            (a.estimated_cost for a in day.morning + day.afternoon + day.evening), Decimal("0")
         )
 
 
-async def gerar_plano(ctx: AgentContext) -> TripPlan:
+async def generate_plan(ctx: AgentContext) -> TripPlan:
     """Pipeline determinístico de geração do TripPlan (RF-20..28).
 
     A conversa (LLM) decide *quando* planejar; a montagem do plano em si é
@@ -76,162 +76,170 @@ async def gerar_plano(ctx: AgentContext) -> TripPlan:
     passam pelo mesmo cache/contador de chamadas usado pelas ferramentas do
     agente (RF-17, RNF-08).
     """
-    brief = ctx.sessao.brief
-    avisos: list[str] = []
-    fontes: list[Fonte] = []
+    brief = ctx.session.brief
+    warnings: list[str] = []
+    sources: list[Source] = []
 
-    destino = brief.destino or ""
-    origem = brief.origem or "Origem não informada"
-    dias_total = max(1, brief.duracao_estimada() or 3)
+    destination = brief.destination or ""
+    origin = brief.origin or "Origem não informada"
+    total_days = max(1, brief.estimated_duration() or 3)
 
     # Câmbio (RF-13) — só quando a moeda do destino difere da moeda de exibição.
-    moeda_local = moeda_do_destino(destino)
-    cambio = None
-    if moeda_local != brief.moeda_exibicao:
-        cambio = await cotar_cambio_cacheado(ctx, moeda_local, brief.moeda_exibicao, avisos)
-        if cambio:
-            fontes.append(cambio.fonte)
-    taxa_cambio = cambio.taxa if cambio else None
+    local_currency = currency_for_destination(destination)
+    exchange_rate = None
+    if local_currency != brief.display_currency:
+        exchange_rate = await get_exchange_rate_cached(ctx, local_currency, brief.display_currency, warnings)
+        if exchange_rate:
+            sources.append(exchange_rate.source)
+    rate_value = exchange_rate.rate if exchange_rate else None
 
     # Hospedagem (RF-10, RF-24: >= 3 opções)
-    resultado_h = await buscar_hospedagem_cacheada(
-        ctx, destino, brief.data_ida, brief.data_volta, brief.total_viajantes, avisos
+    accommodation_result = await search_accommodation_cached(
+        ctx, destination, brief.start_date, brief.end_date, brief.total_travelers, warnings
     )
-    opcoes_hospedagem = resultado_h.itens
-    if opcoes_hospedagem:
-        mais_barata = min(opcoes_hospedagem, key=lambda h: h.preco_por_noite)
-        mais_barata.recomendada = True
-        mais_barata.justificativa = "Melhor custo-benefício entre as opções encontradas para o período."
-        fontes.extend(h.fonte for h in opcoes_hospedagem)
+    accommodation_options = accommodation_result.items
+    if accommodation_options:
+        cheapest = min(accommodation_options, key=lambda h: h.price_per_night)
+        cheapest.recommended = True
+        cheapest.rationale = "Melhor custo-benefício entre as opções encontradas para o período."
+        sources.extend(h.source for h in accommodation_options)
     else:
-        avisos.append(resultado_h.motivo_vazio or f"Nenhuma hospedagem encontrada em {destino}.")
+        warnings.append(
+            accommodation_result.empty_reason or f"Nenhuma hospedagem encontrada em {destination}."
+        )
 
     # Atrações (RF-11)
-    resultado_a = await buscar_atracoes_cacheada(ctx, destino, brief.interesses, _perfil(brief), avisos)
-    atividades_pool = list(resultado_a.itens)
-    if not atividades_pool:
-        avisos.append(resultado_a.motivo_vazio or f"Nenhuma atração encontrada em {destino}.")
-    fontes.extend(a.fonte for a in atividades_pool if a.fonte)
+    attractions_result = await search_attractions_cached(
+        ctx, destination, brief.interests, _profile(brief), warnings
+    )
+    activity_pool = list(attractions_result.items)
+    if not activity_pool:
+        warnings.append(attractions_result.empty_reason or f"Nenhuma atração encontrada em {destination}.")
+    sources.extend(a.source for a in activity_pool if a.source)
 
     # Restaurantes (RF-14)
-    resultado_r = await buscar_restaurantes_cacheada(ctx, destino, brief.restricoes_alimentares, avisos)
-    refeicoes = list(resultado_r.itens)
-    if not refeicoes:
-        avisos.append(
-            resultado_r.motivo_vazio
-            or f"Nenhum restaurante encontrado em {destino} para as restrições informadas."
+    restaurants_result = await search_restaurants_cached(
+        ctx, destination, brief.dietary_restrictions, warnings
+    )
+    meals = list(restaurants_result.items)
+    if not meals:
+        warnings.append(
+            restaurants_result.empty_reason
+            or f"Nenhum restaurante encontrado em {destination} para as restrições informadas."
         )
-    fontes.extend(r.fonte for r in refeicoes)
+    sources.extend(m.source for m in meals)
 
     # Voos (RF-12, RF-24: >= 2 opções)
-    opcoes_voo = []
-    if brief.origem:
-        resultado_v = await estimar_voos_cacheado(
-            ctx, origem, destino, brief.data_ida, brief.data_volta, brief.total_viajantes, avisos
+    flight_options = []
+    if brief.origin:
+        flights_result = await estimate_flights_cached(
+            ctx, origin, destination, brief.start_date, brief.end_date, brief.total_travelers, warnings
         )
-        opcoes_voo = resultado_v.itens
-        fontes.extend(v.fonte for v in opcoes_voo)
+        flight_options = flights_result.items
+        sources.extend(f.source for f in flight_options)
 
     # Itinerário (RF-20..23)
-    itinerario = montar_itinerario(brief, dias_total, list(atividades_pool), list(refeicoes))
-    _converter_itinerario_para_moeda_exibicao(itinerario, brief.moeda_exibicao, taxa_cambio)
+    itinerary = build_itinerary(brief, total_days, list(activity_pool), list(meals))
+    _convert_itinerary_to_display_currency(itinerary, brief.display_currency, rate_value)
 
     # Orçamento (RF-25, RF-26) — usa sempre a opção recomendada (mais barata)
-    hospedagem_escolhida = next((h for h in opcoes_hospedagem if h.recomendada), None) or (
-        opcoes_hospedagem[0] if opcoes_hospedagem else None
+    chosen_accommodation = next((h for h in accommodation_options if h.recommended), None) or (
+        accommodation_options[0] if accommodation_options else None
     )
-    voo_escolhido = next((v for v in opcoes_voo if v.recomendada), None) or (
-        opcoes_voo[0] if opcoes_voo else None
+    chosen_flight = next((f for f in flight_options if f.recommended), None) or (
+        flight_options[0] if flight_options else None
     )
-    custo_hospedagem = (
-        _converter(
-            hospedagem_escolhida.preco_por_noite,
-            hospedagem_escolhida.moeda,
-            brief.moeda_exibicao,
-            taxa_cambio,
+    accommodation_cost = (
+        _convert(
+            chosen_accommodation.price_per_night,
+            chosen_accommodation.currency,
+            brief.display_currency,
+            rate_value,
         )
-        * dias_total
-        if hospedagem_escolhida
+        * total_days
+        if chosen_accommodation
         else Decimal("0")
     )
-    custo_voos = (
-        _converter(
-            (voo_escolhido.preco_min + voo_escolhido.preco_max) / 2,
-            voo_escolhido.moeda,
-            brief.moeda_exibicao,
-            taxa_cambio,
+    flights_cost = (
+        _convert(
+            (chosen_flight.min_price + chosen_flight.max_price) / 2,
+            chosen_flight.currency,
+            brief.display_currency,
+            rate_value,
         )
-        * brief.total_viajantes
-        if voo_escolhido
+        * brief.total_travelers
+        if chosen_flight
         else Decimal("0")
     )
-    # Atividades já convertidas para moeda_exibicao acima; soma direta.
-    custo_passeios = (
+    # Atividades já convertidas para display_currency acima; soma direta.
+    activities_cost = (
         sum(
-            (a.custo_estimado for dia in itinerario for a in dia.manha + dia.tarde + dia.noite),
+            (a.estimated_cost for day in itinerary for a in day.morning + day.afternoon + day.evening),
             Decimal("0"),
         )
-        * brief.total_viajantes
+        * brief.total_travelers
     )
-    custo_alimentacao = ALIMENTACAO_DIARIA_POR_PESSOA * dias_total * brief.total_viajantes
-    custo_transporte_local = TRANSPORTE_LOCAL_DIARIO_POR_PESSOA * dias_total * brief.total_viajantes
+    food_cost = DAILY_FOOD_PER_PERSON * total_days * brief.total_travelers
+    local_transport_cost = DAILY_LOCAL_TRANSPORT_PER_PERSON * total_days * brief.total_travelers
 
-    fonte_alimentacao = _fonte_heuristica(
-        f"Estimativa heurística de alimentação: {ALIMENTACAO_DIARIA_POR_PESSOA} {brief.moeda_exibicao}"
+    food_source = _heuristic_source(
+        f"Estimativa heurística de alimentação: {DAILY_FOOD_PER_PERSON} {brief.display_currency}"
         "/pessoa/dia — não vem de um provedor específico."
     )
-    fonte_transporte = _fonte_heuristica(
-        f"Estimativa heurística de transporte local: {TRANSPORTE_LOCAL_DIARIO_POR_PESSOA} "
-        f"{brief.moeda_exibicao}/pessoa/dia — não vem de um provedor específico."
+    local_transport_source = _heuristic_source(
+        f"Estimativa heurística de transporte local: {DAILY_LOCAL_TRANSPORT_PER_PERSON} "
+        f"{brief.display_currency}/pessoa/dia — não vem de um provedor específico."
     )
-    fontes.append(fonte_alimentacao)
-    fontes.append(fonte_transporte)
+    sources.append(food_source)
+    sources.append(local_transport_source)
 
-    orcamento = calcular_orcamento(
-        voos=custo_voos,
-        hospedagem=custo_hospedagem,
-        alimentacao=custo_alimentacao,
-        passeios=custo_passeios,
-        transporte_local=custo_transporte_local,
-        teto_informado=brief.orcamento_total,
-        tolerancia=brief.tolerancia_orcamento,
-        moeda=brief.moeda_exibicao,
-        fontes=[fonte_alimentacao, fonte_transporte],
+    budget = calculate_budget(
+        flights=flights_cost,
+        accommodation=accommodation_cost,
+        food=food_cost,
+        activities=activities_cost,
+        local_transport=local_transport_cost,
+        stated_cap=brief.total_budget,
+        tolerance=brief.budget_tolerance,
+        currency=brief.display_currency,
+        sources=[food_source, local_transport_source],
     )
-    avisos.extend(orcamento.alertas)
+    warnings.extend(budget.alerts)
 
     # Checklist prático (RF-27, RF-28)
-    info = await tool_info_pratica(
-        ctx, destino=destino, nacionalidade=brief.nacionalidade, periodo=brief.mes_referencia
+    info = await tool_practical_info(
+        ctx, destination=destination, nationality=brief.nationality, period=brief.reference_month
     )
     checklist = Checklist(**info["checklist"])
-    if not eh_internacional(destino, brief.moeda_orcamento):
-        checklist.requisitos_entrada = []
+    if not is_international(destination, brief.budget_currency):
+        checklist.entry_requirements = []
 
-    if not opcoes_voo:
-        avisos.append("Sem origem informada, não foi possível estimar faixa de preço de voos.")
-    if len(opcoes_hospedagem) < 3:
-        avisos.append(f"Apenas {len(opcoes_hospedagem)} opções de hospedagem encontradas (recomendado: 3+).")
-    if len(opcoes_voo) < 2 and opcoes_voo:
-        avisos.append("Apenas 1 opção de voo encontrada (recomendado: 2+).")
+    if not flight_options:
+        warnings.append("Sem origem informada, não foi possível estimar faixa de preço de voos.")
+    if len(accommodation_options) < 3:
+        warnings.append(
+            f"Apenas {len(accommodation_options)} opções de hospedagem encontradas (recomendado: 3+)."
+        )
+    if len(flight_options) < 2 and flight_options:
+        warnings.append("Apenas 1 opção de voo encontrada (recomendado: 2+).")
 
-    resumo = (
-        f"Roteiro de {dias_total} dia(s) para {destino}, partindo de {origem}, para "
-        f"{brief.total_viajantes} viajante(s). Orçamento total estimado: "
-        f"{orcamento.total:.2f} {brief.moeda_exibicao}."
+    summary = (
+        f"Roteiro de {total_days} dia(s) para {destination}, partindo de {origin}, para "
+        f"{brief.total_travelers} viajante(s). Orçamento total estimado: "
+        f"{budget.total:.2f} {brief.display_currency}."
     )
 
     return TripPlan(
         brief=brief,
-        resumo=resumo,
-        opcoes_voo=opcoes_voo,
-        opcoes_hospedagem=opcoes_hospedagem,
-        itinerario=itinerario,
-        refeicoes=refeicoes,
-        orcamento=orcamento,
-        cambio=cambio,
+        summary=summary,
+        flight_options=flight_options,
+        accommodation_options=accommodation_options,
+        itinerary=itinerary,
+        meals=meals,
+        budget=budget,
+        exchange_rate=exchange_rate,
         checklist=checklist,
-        fontes=fontes,
-        avisos=list(dict.fromkeys(avisos)),
-        gerado_em=datetime.now(UTC),
+        sources=sources,
+        warnings=list(dict.fromkeys(warnings)),
+        generated_at=datetime.now(UTC),
     )

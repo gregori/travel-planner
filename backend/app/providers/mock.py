@@ -4,285 +4,285 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from app.geo import moeda_do_destino
-from app.models.common import Fonte
-from app.models.plan import Atividade, CotacaoCambio, OpcaoHospedagem, OpcaoVoo, SugestaoRefeicao
+from app.geo import currency_for_destination
+from app.models.common import Source
+from app.models.plan import AccommodationOption, Activity, ExchangeRate, FlightOption, MealSuggestion
 from app.providers.base import (
-    CriteriosAtracoes,
-    CriteriosCambio,
-    CriteriosHospedagem,
-    CriteriosRestaurantes,
-    CriteriosVoo,
-    ResultadoBusca,
+    AccommodationCriteria,
+    AttractionsCriteria,
+    ExchangeCriteria,
+    FlightCriteria,
+    RestaurantsCriteria,
+    SearchResult,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
-def _slug(texto: str) -> str:
-    normalizado = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
-    return normalizado.strip().lower()
+def _slug(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return normalized.strip().lower()
 
 
-def _carregar(nome_arquivo: str) -> dict:
-    with open(FIXTURES_DIR / nome_arquivo, encoding="utf-8") as f:
+def _load(file_name: str) -> dict:
+    with open(FIXTURES_DIR / file_name, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _fonte_mock(observacao: str | None = None) -> Fonte:
-    return Fonte(
-        tipo="mock",
-        provedor="fixture",
+def _mock_source(note: str | None = None) -> Source:
+    return Source(
+        type="mock",
+        provider="fixture",
         url=None,
-        consultado_em=datetime.now(UTC),
-        confianca="baixa",
-        observacao=observacao or "Dado simulado — sem credencial de provedor real configurada.",
+        retrieved_at=datetime.now(UTC),
+        confidence="low",
+        note=note or "Dado simulado — sem credencial de provedor real configurada.",
     )
 
 
-class MockHospedagemProvider:
+class MockAccommodationProvider:
     def __init__(self) -> None:
-        self._dados = _carregar("hospedagem.json")
+        self._data = _load("accommodation.json")
 
-    async def buscar(self, criterios: CriteriosHospedagem) -> ResultadoBusca[OpcaoHospedagem]:
-        cidade_slug = _slug(criterios.cidade)
-        registros = self._dados.get(cidade_slug)
-        if not registros:
-            registros = self._gerar_generico(criterios.cidade)
-        itens = [
-            OpcaoHospedagem(
-                nome=r["nome"],
-                tipo=r["tipo"],
-                preco_por_noite=Decimal(str(r["preco_por_noite"])),
-                moeda=r["moeda"],
-                localizacao=r["localizacao"],
-                avaliacao=r.get("avaliacao"),
+    async def search(self, criteria: AccommodationCriteria) -> SearchResult[AccommodationOption]:
+        city_slug = _slug(criteria.city)
+        records = self._data.get(city_slug)
+        if not records:
+            records = self._generic_fallback(criteria.city)
+        items = [
+            AccommodationOption(
+                name=r["name"],
+                type=r["type"],
+                price_per_night=Decimal(str(r["price_per_night"])),
+                currency=r["currency"],
+                location=r["location"],
+                rating=r.get("rating"),
                 link=r.get("link"),
-                fonte=_fonte_mock(),
+                source=_mock_source(),
             )
-            for r in registros
+            for r in records
         ]
-        return ResultadoBusca(itens=itens)
+        return SearchResult(items=items)
 
     @staticmethod
-    def _gerar_generico(cidade: str) -> list[dict]:
+    def _generic_fallback(city: str) -> list[dict]:
         return [
             {
-                "nome": f"Hotel Central {cidade}",
-                "tipo": "hotel",
-                "preco_por_noite": 350,
-                "moeda": "BRL",
-                "localizacao": f"Centro, {cidade}",
-                "avaliacao": 4.1,
+                "name": f"Hotel Central {city}",
+                "type": "hotel",
+                "price_per_night": 350,
+                "currency": "BRL",
+                "location": f"Centro, {city}",
+                "rating": 4.1,
                 "link": None,
             },
             {
-                "nome": f"Pousada {cidade}",
-                "tipo": "pousada",
-                "preco_por_noite": 220,
-                "moeda": "BRL",
-                "localizacao": f"Região central, {cidade}",
-                "avaliacao": 4.0,
+                "name": f"Pousada {city}",
+                "type": "pousada",
+                "price_per_night": 220,
+                "currency": "BRL",
+                "location": f"Região central, {city}",
+                "rating": 4.0,
                 "link": None,
             },
             {
-                "nome": f"{cidade} Suites Turísticas",
-                "tipo": "apart-hotel",
-                "preco_por_noite": 290,
-                "moeda": "BRL",
-                "localizacao": f"Zona turística, {cidade}",
-                "avaliacao": 4.2,
+                "name": f"{city} Suites Turísticas",
+                "type": "apart-hotel",
+                "price_per_night": 290,
+                "currency": "BRL",
+                "location": f"Zona turística, {city}",
+                "rating": 4.2,
                 "link": None,
             },
         ]
 
 
-class MockAtracoesProvider:
+class MockAttractionsProvider:
     def __init__(self) -> None:
-        self._dados = _carregar("atracoes.json")
+        self._data = _load("attractions.json")
 
-    async def buscar(self, criterios: CriteriosAtracoes) -> ResultadoBusca[Atividade]:
-        cidade_slug = _slug(criterios.cidade)
-        registros = self._dados.get(cidade_slug)
-        if not registros:
-            registros = self._gerar_generico(criterios.cidade)
-        interesses = {i.lower() for i in criterios.interesses}
-        if interesses:
-            filtrados = [
-                r for r in registros if interesses.intersection({i.lower() for i in r.get("interesses", [])})
+    async def search(self, criteria: AttractionsCriteria) -> SearchResult[Activity]:
+        city_slug = _slug(criteria.city)
+        records = self._data.get(city_slug)
+        if not records:
+            records = self._generic_fallback(criteria.city)
+        interests = {i.lower() for i in criteria.interests}
+        if interests:
+            filtered = [
+                r for r in records if interests.intersection({i.lower() for i in r.get("interests", [])})
             ]
-            registros = filtrados or registros
-        moeda = moeda_do_destino(criterios.cidade)
-        itens = [
-            Atividade(
-                titulo=r["titulo"],
-                descricao=r.get("descricao"),
-                regiao=r.get("regiao"),
-                duracao_min=r.get("duracao_min"),
-                custo_estimado=Decimal(str(r.get("custo_estimado", 0))),
-                moeda=moeda,
-                fonte=_fonte_mock() if r.get("custo_estimado", 0) else None,
+            records = filtered or records
+        currency = currency_for_destination(criteria.city)
+        items = [
+            Activity(
+                title=r["title"],
+                description=r.get("description"),
+                region=r.get("region"),
+                duration_min=r.get("duration_min"),
+                estimated_cost=Decimal(str(r.get("estimated_cost", 0))),
+                currency=currency,
+                source=_mock_source() if r.get("estimated_cost", 0) else None,
             )
-            for r in registros
+            for r in records
         ]
-        return ResultadoBusca(itens=itens)
+        return SearchResult(items=items)
 
     @staticmethod
-    def _gerar_generico(cidade: str) -> list[dict]:
+    def _generic_fallback(city: str) -> list[dict]:
         return [
             {
-                "titulo": f"City tour por {cidade}",
-                "descricao": "Passeio guiado pelos principais pontos da cidade.",
-                "regiao": "Centro",
-                "duracao_min": 120,
-                "custo_estimado": 30,
-                "interesses": ["cultural"],
+                "title": f"City tour por {city}",
+                "description": "Passeio guiado pelos principais pontos da cidade.",
+                "region": "Centro",
+                "duration_min": 120,
+                "estimated_cost": 30,
+                "interests": ["cultural"],
             },
             {
-                "titulo": f"Museu principal de {cidade}",
-                "descricao": "Acervo histórico e cultural local.",
-                "regiao": "Centro",
-                "duracao_min": 90,
-                "custo_estimado": 15,
-                "interesses": ["cultural"],
+                "title": f"Museu principal de {city}",
+                "description": "Acervo histórico e cultural local.",
+                "region": "Centro",
+                "duration_min": 90,
+                "estimated_cost": 15,
+                "interests": ["cultural"],
             },
             {
-                "titulo": f"Mirante de {cidade}",
-                "descricao": "Vista panorâmica, boa opção de tarde livre.",
-                "regiao": "Centro",
-                "duracao_min": 60,
-                "custo_estimado": 0,
-                "interesses": ["natureza", "familia"],
+                "title": f"Mirante de {city}",
+                "description": "Vista panorâmica, boa opção de tarde livre.",
+                "region": "Centro",
+                "duration_min": 60,
+                "estimated_cost": 0,
+                "interests": ["natureza", "familia"],
             },
         ]
 
 
-class MockRestaurantesProvider:
+class MockRestaurantsProvider:
     def __init__(self) -> None:
-        self._dados = _carregar("restaurantes.json")
+        self._data = _load("restaurants.json")
 
-    async def buscar(self, criterios: CriteriosRestaurantes) -> ResultadoBusca[SugestaoRefeicao]:
-        cidade_slug = _slug(criterios.cidade)
-        registros = self._dados.get(cidade_slug)
-        if not registros:
-            registros = self._gerar_generico(criterios.cidade)
+    async def search(self, criteria: RestaurantsCriteria) -> SearchResult[MealSuggestion]:
+        city_slug = _slug(criteria.city)
+        records = self._data.get(city_slug)
+        if not records:
+            records = self._generic_fallback(criteria.city)
 
-        restricoes_norm = {_slug(r) for r in criterios.restricoes}
-        itens: list[SugestaoRefeicao] = []
-        for r in registros:
-            atendidas = {_slug(a) for a in r.get("restricoes_atendidas", [])}
-            if restricoes_norm and not restricoes_norm.issubset(atendidas):
+        normalized_restrictions = {_slug(r) for r in criteria.restrictions}
+        items: list[MealSuggestion] = []
+        for r in records:
+            covered = {_slug(a) for a in r.get("restrictions_covered", [])}
+            if normalized_restrictions and not normalized_restrictions.issubset(covered):
                 continue
-            if restricoes_norm:
-                compat = f"Atende: {', '.join(sorted(criterios.restricoes))}."
+            if normalized_restrictions:
+                compatibility = f"Atende: {', '.join(sorted(criteria.restrictions))}."
             else:
-                compat = "Sem restrições alimentares informadas para verificar."
-            itens.append(
-                SugestaoRefeicao(
-                    nome=r["nome"],
-                    tipo_refeicao=r["tipo_refeicao"],
-                    culinaria=r.get("culinaria"),
-                    faixa_preco=r.get("faixa_preco"),
-                    compatibilidade=compat,
-                    localizacao=r.get("localizacao"),
+                compatibility = "Sem restrições alimentares informadas para verificar."
+            items.append(
+                MealSuggestion(
+                    name=r["name"],
+                    meal_type=r["meal_type"],
+                    cuisine=r.get("cuisine"),
+                    price_range=r.get("price_range"),
+                    compatibility=compatibility,
+                    location=r.get("location"),
                     link=r.get("link"),
-                    fonte=_fonte_mock(),
+                    source=_mock_source(),
                 )
             )
 
-        motivo_vazio = None
-        if not itens and restricoes_norm:
-            motivo_vazio = (
-                f"Nenhum restaurante mockado para {criterios.cidade} atende a todas as "
-                f"restrições: {', '.join(criterios.restricoes)}."
+        empty_reason = None
+        if not items and normalized_restrictions:
+            empty_reason = (
+                f"Nenhum restaurante mockado para {criteria.city} atende a todas as "
+                f"restrições: {', '.join(criteria.restrictions)}."
             )
-        return ResultadoBusca(itens=itens, motivo_vazio=motivo_vazio)
+        return SearchResult(items=items, empty_reason=empty_reason)
 
     @staticmethod
-    def _gerar_generico(cidade: str) -> list[dict]:
+    def _generic_fallback(city: str) -> list[dict]:
         return [
             {
-                "nome": f"Restaurante Central de {cidade}",
-                "tipo_refeicao": "almoço/jantar",
-                "culinaria": "regional",
-                "faixa_preco": "€€",
-                "restricoes_atendidas": ["vegetariano"],
-                "localizacao": f"Centro, {cidade}",
+                "name": f"Restaurante Central de {city}",
+                "meal_type": "almoço/jantar",
+                "cuisine": "regional",
+                "price_range": "€€",
+                "restrictions_covered": ["vegetariano"],
+                "location": f"Centro, {city}",
             },
             {
-                "nome": f"Casa {cidade}",
-                "tipo_refeicao": "jantar",
-                "culinaria": "contemporânea",
-                "faixa_preco": "€€€",
-                "restricoes_atendidas": [],
-                "localizacao": f"Zona nobre, {cidade}",
+                "name": f"Casa {city}",
+                "meal_type": "jantar",
+                "cuisine": "contemporânea",
+                "price_range": "€€€",
+                "restrictions_covered": [],
+                "location": f"Zona nobre, {city}",
             },
         ]
 
 
-class WebFlightEstimatorMock:
+class MockFlightEstimator:
     """Estimador de voos. RF-12: preço de voo é **sempre** uma faixa rotulada
-    ``estimativa`` — nunca ``real``, mesmo quando a busca web está disponível,
+    ``estimate`` — nunca ``real``, mesmo quando a busca web está disponível,
     pois não há API de precificação de passagens com garantia de exatidão."""
 
     def __init__(self) -> None:
-        self._dados = _carregar("voos.json")
+        self._data = _load("flights.json")
 
-    async def estimar(self, criterios: CriteriosVoo) -> ResultadoBusca[OpcaoVoo]:
-        chave = f"{_slug(criterios.origem)}-{_slug(criterios.destino)}"
-        registro = self._dados.get(chave) or self._dados["_default"]
-        fonte = Fonte(
-            tipo="estimativa",
-            provedor="web",
+    async def estimate(self, criteria: FlightCriteria) -> SearchResult[FlightOption]:
+        key = f"{_slug(criteria.origin)}-{_slug(criteria.destination)}"
+        record = self._data.get(key) or self._data["_default"]
+        source = Source(
+            type="estimate",
+            provider="web",
             url=None,
-            consultado_em=datetime.now(UTC),
-            confianca="media" if chave in self._dados else "baixa",
-            observacao="Estimativa por pesquisa web/histórico de rota; faixa, não valor fechado.",
+            retrieved_at=datetime.now(UTC),
+            confidence="medium" if key in self._data else "low",
+            note="Estimativa por pesquisa web/histórico de rota; faixa, não valor fechado.",
         )
-        preco_min_base = Decimal(str(registro["preco_min"]))
-        preco_max_base = Decimal(str(registro["preco_max"]))
-        opcoes = []
-        for indice, cia in enumerate(registro["companhias"]):
+        base_min_price = Decimal(str(record["min_price"]))
+        base_max_price = Decimal(str(record["max_price"]))
+        options = []
+        for index, airline in enumerate(record["airlines"]):
             # Variação determinística por companhia (evita preços idênticos
             # entre opções, mantendo o resultado reproduzível para testes).
-            fator = Decimal("1.0") + Decimal(indice) * Decimal("0.04")
-            opcoes.append(
-                OpcaoVoo(
-                    companhia=cia,
-                    origem=criterios.origem,
-                    destino=criterios.destino,
-                    preco_min=(preco_min_base * fator).quantize(Decimal("0.01")),
-                    preco_max=(preco_max_base * fator).quantize(Decimal("0.01")),
-                    moeda=registro["moeda"],
-                    duracao_horas=registro.get("duracao_horas"),
-                    escalas=registro.get("escalas", 0) + (0 if indice == 0 else indice - 1),
-                    link=f"https://www.google.com/travel/flights?q={_slug(cia)}+{_slug(criterios.origem)}+{_slug(criterios.destino)}",
-                    fonte=fonte,
+            factor = Decimal("1.0") + Decimal(index) * Decimal("0.04")
+            options.append(
+                FlightOption(
+                    airline=airline,
+                    origin=criteria.origin,
+                    destination=criteria.destination,
+                    min_price=(base_min_price * factor).quantize(Decimal("0.01")),
+                    max_price=(base_max_price * factor).quantize(Decimal("0.01")),
+                    currency=record["currency"],
+                    duration_hours=record.get("duration_hours"),
+                    stops=record.get("stops", 0) + (0 if index == 0 else index - 1),
+                    link=f"https://www.google.com/travel/flights?q={_slug(airline)}+{_slug(criteria.origin)}+{_slug(criteria.destination)}",
+                    source=source,
                 )
             )
-        if len(opcoes) >= 2:
-            mais_barata = min(opcoes, key=lambda o: o.preco_min)
-            mais_barata.recomendada = True
-            mais_barata.justificativa = "Menor preço médio na rota estimada."
-        return ResultadoBusca(itens=opcoes)
+        if len(options) >= 2:
+            cheapest = min(options, key=lambda o: o.min_price)
+            cheapest.recommended = True
+            cheapest.rationale = "Menor preço médio na rota estimada."
+        return SearchResult(items=options)
 
 
-class ExchangeRateProviderMock:
+class MockExchangeRateProvider:
     def __init__(self) -> None:
-        self._dados = _carregar("cambio.json")
+        self._data = _load("exchange_rates.json")
 
-    async def cotar(self, criterios: CriteriosCambio) -> CotacaoCambio | None:
-        if criterios.moeda_origem == criterios.moeda_destino:
-            taxa = Decimal("1.0")
+    async def get_rate(self, criteria: ExchangeCriteria) -> ExchangeRate | None:
+        if criteria.source_currency == criteria.target_currency:
+            rate = Decimal("1.0")
         else:
-            chave = f"{criterios.moeda_origem}-{criterios.moeda_destino}"
-            taxa_raw = self._dados.get(chave)
-            if taxa_raw is None:
+            key = f"{criteria.source_currency}-{criteria.target_currency}"
+            raw_rate = self._data.get(key)
+            if raw_rate is None:
                 return None
-            taxa = Decimal(str(taxa_raw))
-        return CotacaoCambio(
-            moeda_origem=criterios.moeda_origem,
-            moeda_destino=criterios.moeda_destino,
-            taxa=taxa,
-            fonte=_fonte_mock("Taxa mock — não usar para conversão financeira real."),
+            rate = Decimal(str(raw_rate))
+        return ExchangeRate(
+            source_currency=criteria.source_currency,
+            target_currency=criteria.target_currency,
+            rate=rate,
+            source=_mock_source("Taxa mock — não usar para conversão financeira real."),
         )

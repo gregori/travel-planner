@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from typing import Any
 
-from app.llm.base import LLMMessage, LLMResponse, LLMStreamChunk, LLMTodosModelosFalharamError, ToolCall
+from app.llm.base import AllModelsFailedError, LLMMessage, LLMResponse, LLMStreamChunk, ToolCall
 
 
 class FakeLLM:
@@ -10,7 +10,7 @@ class FakeLLM:
     Recebe um roteiro (`script`) de respostas pré-definidas e as retorna em
     sequência a cada chamada de `complete`, sem nenhuma rede envolvida.
 
-    `falha_modelos` permite simular modelos indisponíveis na cadeia de
+    `failing_models` permite simular modelos indisponíveis na cadeia de
     fallback (RNF-07): a primeira chamada tentará esses modelos e falhará
     antes de responder com o próximo modelo saudável da cadeia.
     """
@@ -19,13 +19,13 @@ class FakeLLM:
         self,
         script: list[LLMResponse],
         model_chain: list[str] | None = None,
-        falha_modelos: set[str] | None = None,
+        failing_models: set[str] | None = None,
     ) -> None:
         self._script = list(script)
         self._idx = 0
-        self._model_chain = model_chain or ["fake-model-primario"]
-        self._falha_modelos = falha_modelos or set()
-        self.modelos_tentados: list[str] = []
+        self._model_chain = model_chain or ["fake-model-primary"]
+        self._failing_models = failing_models or set()
+        self.models_tried: list[str] = []
 
     async def complete(
         self,
@@ -33,18 +33,18 @@ class FakeLLM:
         tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
         if self._idx >= len(self._script):
-            raise LLMTodosModelosFalharamError("FakeLLM: roteiro esgotado")
-        resposta = self._script[self._idx]
+            raise AllModelsFailedError("FakeLLM: roteiro esgotado")
+        response = self._script[self._idx]
         self._idx += 1
 
-        for modelo in self._model_chain:
-            self.modelos_tentados.append(modelo)
-            if modelo in self._falha_modelos:
+        for model in self._model_chain:
+            self.models_tried.append(model)
+            if model in self._failing_models:
                 continue
-            resposta.modelo_usado = modelo
-            return resposta
+            response.model_used = model
+            return response
 
-        raise LLMTodosModelosFalharamError(f"Todos os modelos falharam (simulado): {self._model_chain}")
+        raise AllModelsFailedError(f"Todos os modelos falharam (simulado): {self._model_chain}")
 
     async def stream(
         self,
@@ -54,23 +54,23 @@ class FakeLLM:
         """Simula streaming dividindo o conteúdo do roteiro em palavras —
         determinístico, sem rede (RNF-03), mas exercita o mesmo caminho de
         emissão incremental usado pelo cliente real (RF-06)."""
-        resposta = await self.complete(messages, tools)
-        if resposta.content:
-            palavras = resposta.content.split(" ")
-            for i, palavra in enumerate(palavras):
-                pedaco = palavra if i == len(palavras) - 1 else palavra + " "
-                yield LLMStreamChunk(delta=pedaco)
-        yield LLMStreamChunk(resposta_final=resposta)
+        response = await self.complete(messages, tools)
+        if response.content:
+            words = response.content.split(" ")
+            for i, word in enumerate(words):
+                chunk = word if i == len(words) - 1 else word + " "
+                yield LLMStreamChunk(delta=chunk)
+        yield LLMStreamChunk(final_response=response)
 
 
-def resposta_texto(texto: str, modelo: str = "fake-model") -> LLMResponse:
-    return LLMResponse(content=texto, tool_calls=[], modelo_usado=modelo)
+def text_response(text: str, model: str = "fake-model") -> LLMResponse:
+    return LLMResponse(content=text, tool_calls=[], model_used=model)
 
 
-def resposta_tool_call(nome: str, argumentos: dict[str, Any], call_id: str = "call_1") -> LLMResponse:
+def tool_call_response(name: str, arguments: dict[str, Any], call_id: str = "call_1") -> LLMResponse:
     return LLMResponse(
         content=None,
-        tool_calls=[ToolCall(id=call_id, name=nome, arguments=argumentos)],
-        modelo_usado="fake-model",
+        tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
+        model_used="fake-model",
         finish_reason="tool_calls",
     )

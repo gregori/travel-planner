@@ -1,0 +1,9 @@
+{
+  "sao paulo-lisboa": {"min_price": 4200, "max_price": 6800, "currency": "BRL", "duration_hours": 10.5, "stops": 0, "airlines": ["TAP Air Portugal", "LATAM"]},
+  "lisboa-sao paulo": {"min_price": 4200, "max_price": 6800, "currency": "BRL", "duration_hours": 10.5, "stops": 0, "airlines": ["TAP Air Portugal", "LATAM"]},
+  "sao paulo-paris": {"min_price": 3800, "max_price": 6200, "currency": "BRL", "duration_hours": 11.2, "stops": 0, "airlines": ["Air France", "LATAM"]},
+  "paris-sao paulo": {"min_price": 3800, "max_price": 6200, "currency": "BRL", "duration_hours": 11.2, "stops": 0, "airlines": ["Air France", "LATAM"]},
+  "sao paulo-florianopolis": {"min_price": 380, "max_price": 720, "currency": "BRL", "duration_hours": 1.4, "stops": 0, "airlines": ["GOL", "Azul"]},
+  "florianopolis-sao paulo": {"min_price": 380, "max_price": 720, "currency": "BRL", "duration_hours": 1.4, "stops": 0, "airlines": ["GOL", "Azul"]},
+  "_default": {"min_price": 1500, "max_price": 3200, "currency": "BRL", "duration_hours": 6.0, "stops": 1, "airlines": ["Companhia Aérea Parceira"]}
+}

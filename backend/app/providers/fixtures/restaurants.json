@@ -1,0 +1,18 @@
+{
+  "lisboa": [
+    {"name": "Cantina Sem Glúten Alfama", "meal_type": "almoço/jantar", "cuisine": "portuguesa", "price_range": "€€", "restrictions_covered": ["sem gluten", "sem glúten"], "location": "Alfama, Lisboa"},
+    {"name": "Time Out Market (estações livres de glúten)", "meal_type": "almoço", "cuisine": "variada", "price_range": "€€", "restrictions_covered": ["sem gluten", "sem glúten", "vegetariano"], "location": "Cais do Sodré, Lisboa"},
+    {"name": "Marisqueira Ribeira", "meal_type": "jantar", "cuisine": "frutos do mar", "price_range": "€€€", "restrictions_covered": [], "location": "Cais do Sodré, Lisboa"},
+    {"name": "Nook Kitchen & Wine Bar", "meal_type": "jantar", "cuisine": "contemporânea", "price_range": "€€", "restrictions_covered": ["sem gluten", "sem glúten", "vegano"], "location": "Príncipe Real, Lisboa"}
+  ],
+  "paris": [
+    {"name": "Bistrot Le Comptoir Romantique", "meal_type": "jantar", "cuisine": "francesa", "price_range": "€€€", "restrictions_covered": [], "location": "Saint-Germain, Paris"},
+    {"name": "Le Petit Fromage", "meal_type": "jantar", "cuisine": "francesa", "price_range": "€€", "restrictions_covered": ["vegetariano"], "location": "Le Marais, Paris"},
+    {"name": "Café des Amants", "meal_type": "café da manhã", "cuisine": "francesa", "price_range": "€", "restrictions_covered": [], "location": "Montmartre, Paris"}
+  ],
+  "florianopolis": [
+    {"name": "Box 32 Mercado Público", "meal_type": "almoço", "cuisine": "frutos do mar", "price_range": "€", "restrictions_covered": [], "location": "Centro, Florianópolis"},
+    {"name": "Ostradamus", "meal_type": "jantar", "cuisine": "frutos do mar", "price_range": "€€", "restrictions_covered": [], "location": "Ribeirão da Ilha, Florianópolis"},
+    {"name": "Empório Lagoa Vegana", "meal_type": "almoço/jantar", "cuisine": "vegana", "price_range": "€", "restrictions_covered": ["vegano", "vegetariano", "sem gluten", "sem glúten"], "location": "Lagoa da Conceição, Florianópolis"}
+  ]
+}

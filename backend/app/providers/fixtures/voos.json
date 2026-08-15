@@ -1,9 +1,0 @@
-{
-  "sao paulo-lisboa": {"preco_min": 4200, "preco_max": 6800, "moeda": "BRL", "duracao_horas": 10.5, "escalas": 0, "companhias": ["TAP Air Portugal", "LATAM"]},
-  "lisboa-sao paulo": {"preco_min": 4200, "preco_max": 6800, "moeda": "BRL", "duracao_horas": 10.5, "escalas": 0, "companhias": ["TAP Air Portugal", "LATAM"]},
-  "sao paulo-paris": {"preco_min": 3800, "preco_max": 6200, "moeda": "BRL", "duracao_horas": 11.2, "escalas": 0, "companhias": ["Air France", "LATAM"]},
-  "paris-sao paulo": {"preco_min": 3800, "preco_max": 6200, "moeda": "BRL", "duracao_horas": 11.2, "escalas": 0, "companhias": ["Air France", "LATAM"]},
-  "sao paulo-florianopolis": {"preco_min": 380, "preco_max": 720, "moeda": "BRL", "duracao_horas": 1.4, "escalas": 0, "companhias": ["GOL", "Azul"]},
-  "florianopolis-sao paulo": {"preco_min": 380, "preco_max": 720, "moeda": "BRL", "duracao_horas": 1.4, "escalas": 0, "companhias": ["GOL", "Azul"]},
-  "_default": {"preco_min": 1500, "preco_max": 3200, "moeda": "BRL", "duracao_horas": 6.0, "escalas": 1, "companhias": ["Companhia Aérea Parceira"]}
-}

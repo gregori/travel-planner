@@ -9,23 +9,23 @@ from app.session.store import SessionState
 T = TypeVar("T")
 
 
-def chave_cache(ferramenta: str, **kwargs) -> str:
-    payload = json.dumps({"ferramenta": ferramenta, **kwargs}, sort_keys=True, default=str)
+def cache_key(tool: str, **kwargs) -> str:
+    payload = json.dumps({"tool": tool, **kwargs}, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-async def chamada_cacheada(
-    sessao: SessionState,
-    chave: str,
-    ttl_minutos: int,
-    produzir: Callable[[], Awaitable[T]],
+async def cached_call(
+    session: SessionState,
+    key: str,
+    ttl_minutes: int,
+    produce: Callable[[], Awaitable[T]],
 ) -> T:
     """Cache de buscas por sessão (RF-17), com TTL (RNF-08)."""
-    agora = time.monotonic()
-    if chave in sessao.cache_buscas:
-        armazenado_em, valor = sessao.cache_buscas[chave]
-        if agora - armazenado_em < ttl_minutos * 60:
-            return valor  # type: ignore[return-value]
-    valor = await produzir()
-    sessao.cache_buscas[chave] = (agora, valor)
-    return valor
+    now = time.monotonic()
+    if key in session.search_cache:
+        stored_at, value = session.search_cache[key]
+        if now - stored_at < ttl_minutes * 60:
+            return value  # type: ignore[return-value]
+    value = await produce()
+    session.search_cache[key] = (now, value)
+    return value

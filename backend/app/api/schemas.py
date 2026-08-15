@@ -1,21 +1,21 @@
 from pydantic import BaseModel
 
 
-class SessaoResposta(BaseModel):
+class SessionResponse(BaseModel):
     session_id: str
-    ttl_minutos: int
+    ttl_minutes: int
 
 
-class ChatRequisicao(BaseModel):
+class ChatRequest(BaseModel):
     session_id: str
-    mensagem: str
+    message: str
 
 
-class ErroDetalhe(BaseModel):
-    codigo: str
-    mensagem: str
-    recuperavel: bool = True
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    recoverable: bool = True
 
 
-class ErroResposta(BaseModel):
-    erro: ErroDetalhe
+class ErrorResponse(BaseModel):
+    error: ErrorDetail

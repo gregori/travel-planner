@@ -4,45 +4,45 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.models.common import Fonte
-from app.models.plan import Atividade, Orcamento
+from app.models.common import Source
+from app.models.plan import Activity, Budget
 
-FONTE = Fonte(
-    tipo="mock",
-    provedor="fixture",
+SOURCE = Source(
+    type="mock",
+    provider="fixture",
     url=None,
-    consultado_em=datetime.now(UTC),
-    confianca="baixa",
-    observacao=None,
+    retrieved_at=datetime.now(UTC),
+    confidence="low",
+    note=None,
 )
 
 
 def test_atividade_com_custo_exige_fonte():
-    """RF-15/§7.3: um item com preço sem Fonte é um plano inválido."""
-    with pytest.raises(ValidationError, match="Fonte"):
-        Atividade(titulo="Passeio pago", custo_estimado=Decimal("50"), fonte=None)
+    """RF-15/§7.3: um item com preço sem Source é um plano inválido."""
+    with pytest.raises(ValidationError, match="Source"):
+        Activity(title="Passeio pago", estimated_cost=Decimal("50"), source=None)
 
 
 def test_atividade_sem_custo_dispensa_fonte():
-    atividade = Atividade(titulo="Tempo livre", custo_estimado=Decimal("0"), fonte=None)
-    assert atividade.fonte is None
+    activity = Activity(title="Tempo livre", estimated_cost=Decimal("0"), source=None)
+    assert activity.source is None
 
 
 def test_atividade_com_custo_e_fonte_valida():
-    atividade = Atividade(titulo="Museu", custo_estimado=Decimal("20"), fonte=FONTE)
-    assert atividade.fonte is not None
+    activity = Activity(title="Museu", estimated_cost=Decimal("20"), source=SOURCE)
+    assert activity.source is not None
 
 
 def test_orcamento_com_alimentacao_sem_fonte_falha():
-    with pytest.raises(ValidationError, match="Fonte"):
-        Orcamento(alimentacao=Decimal("500"), transporte_local=Decimal("0"), fontes=[])
+    with pytest.raises(ValidationError, match="Source"):
+        Budget(food=Decimal("500"), local_transport=Decimal("0"), sources=[])
 
 
 def test_orcamento_com_alimentacao_e_fonte_valida():
-    orc = Orcamento(alimentacao=Decimal("500"), transporte_local=Decimal("100"), fontes=[FONTE])
-    assert orc.total > 0
+    budget = Budget(food=Decimal("500"), local_transport=Decimal("100"), sources=[SOURCE])
+    assert budget.total > 0
 
 
 def test_orcamento_sem_categorias_heuristicas_dispensa_fonte():
-    orc = Orcamento(voos=Decimal("1000"), hospedagem=Decimal("500"), fontes=[])
-    assert orc.total == Decimal("1500")
+    budget = Budget(flights=Decimal("1000"), accommodation=Decimal("500"), sources=[])
+    assert budget.total == Decimal("1500")

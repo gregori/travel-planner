@@ -1,12 +1,12 @@
 import pytest
 
-from app.llm.base import LLMTodosModelosFalharamError
-from app.llm.fake import FakeLLM, resposta_texto
+from app.llm.base import AllModelsFailedError
+from app.llm.fake import FakeLLM, text_response
 
 
 @pytest.mark.asyncio
 async def test_fake_llm_retorna_roteiro_em_sequencia():
-    llm = FakeLLM(script=[resposta_texto("primeira"), resposta_texto("segunda")])
+    llm = FakeLLM(script=[text_response("primeira"), text_response("segunda")])
     r1 = await llm.complete(messages=[])
     r2 = await llm.complete(messages=[])
     assert r1.content == "primeira"
@@ -16,21 +16,21 @@ async def test_fake_llm_retorna_roteiro_em_sequencia():
 @pytest.mark.asyncio
 async def test_fallback_de_modelos_registra_qual_respondeu():
     llm = FakeLLM(
-        script=[resposta_texto("ok")],
-        model_chain=["primario", "secundario"],
-        falha_modelos={"primario"},
+        script=[text_response("ok")],
+        model_chain=["primary", "secondary"],
+        failing_models={"primary"},
     )
-    resposta = await llm.complete(messages=[])
-    assert resposta.modelo_usado == "secundario"
-    assert llm.modelos_tentados == ["primario", "secundario"]
+    response = await llm.complete(messages=[])
+    assert response.model_used == "secondary"
+    assert llm.models_tried == ["primary", "secondary"]
 
 
 @pytest.mark.asyncio
 async def test_todos_os_modelos_falhando_levanta_erro():
     llm = FakeLLM(
-        script=[resposta_texto("nunca chega")],
-        model_chain=["primario", "secundario"],
-        falha_modelos={"primario", "secundario"},
+        script=[text_response("nunca chega")],
+        model_chain=["primary", "secondary"],
+        failing_models={"primary", "secondary"},
     )
-    with pytest.raises(LLMTodosModelosFalharamError):
+    with pytest.raises(AllModelsFailedError):
         await llm.complete(messages=[])

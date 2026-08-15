@@ -4,169 +4,167 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from app.agent.planner import gerar_plano
+from app.agent.planner import generate_plan
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.tools import TOOL_HANDLERS, TOOL_SCHEMAS, AgentContext
-from app.llm.base import LLMClient, LLMMessage, LLMTodosModelosFalharamError
+from app.llm.base import AllModelsFailedError, LLMClient, LLMMessage
 
 logger = logging.getLogger("travel_planner.agent")
-metricas = logging.getLogger("travel_planner.metrics")
+metrics = logging.getLogger("travel_planner.metrics")
 
-MAX_ITERACOES_POR_TURNO = 8
+MAX_ITERATIONS_PER_TURN = 8
 
 
 def _dumps(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, default=str)
 
 
-def conta_perguntas(texto: str) -> int:
+def count_questions(text: str) -> int:
     """Conta quantas perguntas há em um texto (RF-03: no máximo 2 por turno)."""
-    return texto.count("?")
+    return text.count("?")
 
 
-def estimar_tokens(texto: str) -> int:
+def estimate_tokens(text: str) -> int:
     """Heurística simples (~4 caracteres/token) para controle de custo
     (RNF-08) sem depender de um tokenizer específico de modelo."""
-    return max(1, len(texto) // 4)
+    return max(1, len(text) // 4)
 
 
-def _log_estruturado(**campos: Any) -> None:
+def _log_structured(**fields: Any) -> None:
     """Log estruturado em JSON (RNF-12): session_id, ferramenta/modelo,
     latência e custo estimado, para depurar uma sessão inteira."""
-    metricas.info(_dumps(campos))
+    metrics.info(_dumps(fields))
 
 
-async def processar_mensagem(
-    ctx: AgentContext, llm: LLMClient, texto_usuario: str
-) -> AsyncIterator[dict[str, Any]]:
+async def process_message(ctx: AgentContext, llm: LLMClient, user_text: str) -> AsyncIterator[dict[str, Any]]:
     """Processa uma mensagem do usuário, emitindo eventos compatíveis com o
     contrato SSE de `/api/chat` (§8): token, tool_call, brief_update,
     plan_ready, error, done.
     """
-    sessao = ctx.sessao
-    limite_chamadas = ctx.settings.max_tool_calls_per_session
-    limite_tokens = ctx.settings.max_tokens_per_session
+    session = ctx.session
+    call_limit = ctx.settings.max_tool_calls_per_session
+    token_limit = ctx.settings.max_tokens_per_session
 
-    if not sessao.historico:
-        sessao.historico.append(LLMMessage(role="system", content=SYSTEM_PROMPT))
-    sessao.historico.append(LLMMessage(role="user", content=texto_usuario))
-    sessao.tokens_usados += estimar_tokens(texto_usuario)
+    if not session.history:
+        session.history.append(LLMMessage(role="system", content=SYSTEM_PROMPT))
+    session.history.append(LLMMessage(role="user", content=user_text))
+    session.tokens_used += estimate_tokens(user_text)
 
-    for _ in range(MAX_ITERACOES_POR_TURNO):
-        if sessao.chamadas_de_ferramenta >= limite_chamadas or sessao.tokens_usados >= limite_tokens:
-            texto_final = (
+    for _ in range(MAX_ITERATIONS_PER_TURN):
+        if session.tool_calls_made >= call_limit or session.tokens_used >= token_limit:
+            final_text = (
                 "Atingi o limite de uso desta sessão (buscas ou tokens). Vou seguir com as "
                 "informações que já tenho até aqui."
             )
-            sessao.historico.append(LLMMessage(role="assistant", content=texto_final))
-            yield {"evento": "token", "dados": texto_final}
+            session.history.append(LLMMessage(role="assistant", content=final_text))
+            yield {"event": "token", "data": final_text}
             break
 
-        inicio = time.monotonic()
-        resposta_final = None
+        start = time.monotonic()
+        final_response = None
         try:
-            async for chunk in llm.stream(sessao.historico, tools=TOOL_SCHEMAS):
+            async for chunk in llm.stream(session.history, tools=TOOL_SCHEMAS):
                 if chunk.delta:
-                    yield {"evento": "token", "dados": chunk.delta}
-                if chunk.resposta_final:
-                    resposta_final = chunk.resposta_final
-        except LLMTodosModelosFalharamError as exc:
+                    yield {"event": "token", "data": chunk.delta}
+                if chunk.final_response:
+                    final_response = chunk.final_response
+        except AllModelsFailedError as exc:
             logger.error("todos os modelos da cadeia falharam: %s", exc)
-            yield {"evento": "error", "dados": {"codigo": "llm_indisponivel", "mensagem": str(exc)}}
+            yield {"event": "error", "data": {"code": "llm_unavailable", "message": str(exc)}}
             return
         except Exception as exc:  # noqa: BLE001 - falha no meio do stream (após já ter emitido texto)
             logger.error("stream do LLM interrompido no meio: %s", exc)
-            yield {"evento": "error", "dados": {"codigo": "llm_stream_interrompido", "mensagem": str(exc)}}
+            yield {"event": "error", "data": {"code": "llm_stream_interrupted", "message": str(exc)}}
             return
 
-        latencia_ms = round((time.monotonic() - inicio) * 1000, 1)
-        texto_resposta = resposta_final.content or "" if resposta_final else ""
-        sessao.tokens_usados += estimar_tokens(texto_resposta)
-        _log_estruturado(
-            session_id=sessao.session_id,
-            evento="llm_resposta",
-            modelo=resposta_final.modelo_usado if resposta_final else None,
-            latencia_ms=latencia_ms,
-            tokens_estimados=sessao.tokens_usados,
-            tem_tool_calls=bool(resposta_final and resposta_final.tool_calls),
+        latency_ms = round((time.monotonic() - start) * 1000, 1)
+        response_text = final_response.content or "" if final_response else ""
+        session.tokens_used += estimate_tokens(response_text)
+        _log_structured(
+            session_id=session.session_id,
+            event="llm_response",
+            model=final_response.model_used if final_response else None,
+            latency_ms=latency_ms,
+            estimated_tokens=session.tokens_used,
+            has_tool_calls=bool(final_response and final_response.tool_calls),
         )
 
-        if resposta_final and resposta_final.tool_calls:
-            sessao.historico.append(
+        if final_response and final_response.tool_calls:
+            session.history.append(
                 LLMMessage(
-                    role="assistant", content=resposta_final.content, tool_calls=resposta_final.tool_calls
+                    role="assistant", content=final_response.content, tool_calls=final_response.tool_calls
                 )
             )
-            for chamada in resposta_final.tool_calls:
-                if sessao.chamadas_de_ferramenta >= limite_chamadas:
-                    resultado: dict[str, Any] = {
-                        "erro": "limite de chamadas de ferramenta atingido nesta sessão"
+            for call in final_response.tool_calls:
+                if session.tool_calls_made >= call_limit:
+                    result: dict[str, Any] = {
+                        "error": "limite de chamadas de ferramenta atingido nesta sessão"
                     }
                 else:
-                    sessao.chamadas_de_ferramenta += 1
-                    handler = TOOL_HANDLERS.get(chamada.name)
-                    inicio_ferramenta = time.monotonic()
+                    session.tool_calls_made += 1
+                    handler = TOOL_HANDLERS.get(call.name)
+                    tool_start = time.monotonic()
                     if handler is None:
-                        resultado = {"erro": f"ferramenta desconhecida: {chamada.name}"}
+                        result = {"error": f"ferramenta desconhecida: {call.name}"}
                     else:
                         try:
-                            resultado = await handler(ctx, **chamada.arguments)
+                            result = await handler(ctx, **call.arguments)
                         except Exception as exc:  # noqa: BLE001
-                            logger.warning("ferramenta %s falhou: %s", chamada.name, exc)
-                            resultado = {"erro": str(exc)}
-                    _log_estruturado(
-                        session_id=sessao.session_id,
-                        evento="tool_call",
-                        ferramenta=chamada.name,
-                        latencia_ms=round((time.monotonic() - inicio_ferramenta) * 1000, 1),
+                            logger.warning("ferramenta %s falhou: %s", call.name, exc)
+                            result = {"error": str(exc)}
+                    _log_structured(
+                        session_id=session.session_id,
+                        event="tool_call",
+                        tool=call.name,
+                        latency_ms=round((time.monotonic() - tool_start) * 1000, 1),
                     )
 
                 yield {
-                    "evento": "tool_call",
-                    "dados": {"ferramenta": chamada.name, "argumentos": chamada.arguments},
+                    "event": "tool_call",
+                    "data": {"tool": call.name, "arguments": call.arguments},
                 }
-                if chamada.name == "atualizar_briefing":
-                    yield {"evento": "brief_update", "dados": sessao.brief.model_dump(mode="json")}
+                if call.name == "update_brief":
+                    yield {"event": "brief_update", "data": session.brief.model_dump(mode="json")}
 
-                resultado_texto = _dumps(resultado)
-                sessao.tokens_usados += estimar_tokens(resultado_texto)
-                sessao.historico.append(
+                result_text = _dumps(result)
+                session.tokens_used += estimate_tokens(result_text)
+                session.history.append(
                     LLMMessage(
                         role="tool",
-                        tool_call_id=chamada.id,
-                        name=chamada.name,
-                        content=resultado_texto,
+                        tool_call_id=call.id,
+                        name=call.name,
+                        content=result_text,
                     )
                 )
             continue  # deixa o LLM reagir aos resultados das ferramentas
 
-        if conta_perguntas(texto_resposta) > 2:
+        if count_questions(response_text) > 2:
             logger.warning("resposta do agente contém mais de 2 perguntas (RF-03)")
-        if texto_resposta:
-            sessao.historico.append(LLMMessage(role="assistant", content=texto_resposta))
+        if response_text:
+            session.history.append(LLMMessage(role="assistant", content=response_text))
         break
     else:
         yield {
-            "evento": "error",
-            "dados": {
-                "codigo": "loop_nao_convergiu",
-                "mensagem": "Muitas chamadas de ferramenta em sequência.",
+            "event": "error",
+            "data": {
+                "code": "loop_did_not_converge",
+                "message": "Muitas chamadas de ferramenta em sequência.",
             },
         }
 
-    if sessao.brief.pronto_para_planejar():
-        assinatura_atual = sessao.brief.model_dump_json()
-        if assinatura_atual != sessao.assinatura_do_ultimo_plano:
+    if session.brief.ready_to_plan():
+        current_signature = session.brief.model_dump_json()
+        if current_signature != session.last_plan_signature:
             try:
-                plano = await gerar_plano(ctx)
-                sessao.plan = plano
-                sessao.assinatura_do_ultimo_plano = assinatura_atual
-                yield {"evento": "plan_ready", "dados": plano.model_dump(mode="json")}
+                plan = await generate_plan(ctx)
+                session.plan = plan
+                session.last_plan_signature = current_signature
+                yield {"event": "plan_ready", "data": plan.model_dump(mode="json")}
             except Exception as exc:  # noqa: BLE001
                 logger.error("falha ao montar o plano: %s", exc)
                 yield {
-                    "evento": "error",
-                    "dados": {"codigo": "falha_ao_planejar", "mensagem": str(exc)},
+                    "event": "error",
+                    "data": {"code": "plan_generation_failed", "message": str(exc)},
                 }
 
-    yield {"evento": "done", "dados": None}
+    yield {"event": "done", "data": None}

@@ -17,31 +17,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("travel_planner")
 
 
-def _validar_cadeia_de_modelos(settings: Settings) -> None:
+def _validate_model_chain(settings: Settings) -> None:
     """Validação estrutural da cadeia de fallback (RNF-07, §9).
 
     Não faz chamadas de rede no startup (mantém testes/CI offline — RNF-03).
     A validação funcional de cada modelo ocorre no primeiro uso real; qual
     modelo respondeu é registrado em log a cada chamada.
     """
-    cadeia = settings.model_chain_lista
-    if not cadeia:
+    chain = settings.model_chain_list
+    if not chain:
         raise RuntimeError("LLM_MODEL_CHAIN não pode ser vazio — configure ao menos um modelo.")
-    logger.info("cadeia de modelos configurada: %s", cadeia)
+    logger.info("cadeia de modelos configurada: %s", chain)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    _validar_cadeia_de_modelos(settings)
+    _validate_model_chain(settings)
 
     app.state.settings = settings
-    app.state.session_store = SessionStore(ttl_minutos=settings.session_ttl_minutes)
+    app.state.session_store = SessionStore(ttl_minutes=settings.session_ttl_minutes)
     app.state.provider_registry = ProviderRegistry(settings)
     app.state.llm_client = OpenAICompatibleLLM(
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,
-        model_chain=settings.model_chain_lista,
+        model_chain=settings.model_chain_list,
     )
     yield
 
@@ -56,10 +56,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    settings_padrao = get_settings()
+    default_settings = get_settings()
     limiter = Limiter(
         key_func=get_remote_address,
-        default_limits=[f"{settings_padrao.rate_limit_per_minute}/minute"],
+        default_limits=[f"{default_settings.rate_limit_per_minute}/minute"],
     )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

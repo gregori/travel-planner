@@ -10,63 +10,63 @@ from app.models.plan import TripPlan
 @dataclass
 class SessionState:
     session_id: str
-    criado_em: float
-    expira_em: float
+    created_at: float
+    expires_at: float
     brief: TripBrief = field(default_factory=TripBrief)
     plan: TripPlan | None = None
-    historico: list[LLMMessage] = field(default_factory=list)
-    chamadas_de_ferramenta: int = 0
-    tokens_usados: int = 0
-    cache_buscas: dict[str, tuple[float, object]] = field(default_factory=dict)
+    history: list[LLMMessage] = field(default_factory=list)
+    tool_calls_made: int = 0
+    tokens_used: int = 0
+    search_cache: dict[str, tuple[float, object]] = field(default_factory=dict)
     # RF-04: assinatura do briefing usado para gerar o plano atual — se o
     # briefing mudar, o plano é recalculado; se não mudou, evita replanejar
     # a cada turno (RNF-08).
-    assinatura_do_ultimo_plano: str | None = None
+    last_plan_signature: str | None = None
 
-    def expirada(self) -> bool:
-        return time.monotonic() >= self.expira_em
+    def is_expired(self) -> bool:
+        return time.monotonic() >= self.expires_at
 
 
 class SessionStore:
     """Sessões efêmeras em memória com TTL (RNF-09). Sem persistência em disco."""
 
-    def __init__(self, ttl_minutos: int = 60) -> None:
-        self._ttl_segundos = ttl_minutos * 60
-        self._sessoes: dict[str, SessionState] = {}
+    def __init__(self, ttl_minutes: int = 60) -> None:
+        self._ttl_seconds = ttl_minutes * 60
+        self._sessions: dict[str, SessionState] = {}
 
-    def criar(self) -> SessionState:
-        self._purgar_expiradas()
+    def create(self) -> SessionState:
+        self._purge_expired()
         session_id = str(uuid.uuid4())
-        agora = time.monotonic()
-        estado = SessionState(
+        now = time.monotonic()
+        state = SessionState(
             session_id=session_id,
-            criado_em=agora,
-            expira_em=agora + self._ttl_segundos,
+            created_at=now,
+            expires_at=now + self._ttl_seconds,
         )
-        self._sessoes[session_id] = estado
-        return estado
+        self._sessions[session_id] = state
+        return state
 
-    def obter(self, session_id: str) -> SessionState | None:
-        estado = self._sessoes.get(session_id)
-        if estado is None:
+    def get(self, session_id: str) -> SessionState | None:
+        state = self._sessions.get(session_id)
+        if state is None:
             return None
-        if estado.expirada():
-            del self._sessoes[session_id]
+        if state.is_expired():
+            del self._sessions[session_id]
             return None
-        return estado
+        return state
 
-    def renovar(self, session_id: str) -> None:
-        estado = self._sessoes.get(session_id)
-        if estado is not None:
-            estado.expira_em = time.monotonic() + self._ttl_segundos
+    def renew(self, session_id: str) -> None:
+        state = self._sessions.get(session_id)
+        if state is not None:
+            state.expires_at = time.monotonic() + self._ttl_seconds
 
-    def _purgar_expiradas(self) -> None:
-        expiradas = [sid for sid, s in self._sessoes.items() if s.expirada()]
-        for sid in expiradas:
-            del self._sessoes[sid]
+    def _purge_expired(self) -> None:
+        expired = [sid for sid, s in self._sessions.items() if s.is_expired()]
+        for sid in expired:
+            del self._sessions[sid]
 
-    def ttl_restante_segundos(self, session_id: str) -> float | None:
-        estado = self.obter(session_id)
-        if estado is None:
+    def ttl_remaining_seconds(self, session_id: str) -> float | None:
+        state = self.get(session_id)
+        if state is None:
             return None
-        return max(0.0, estado.expira_em - time.monotonic())
+        return max(0.0, state.expires_at - time.monotonic())

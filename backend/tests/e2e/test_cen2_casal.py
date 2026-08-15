@@ -1,6 +1,6 @@
 import pytest
 
-from app.agent.loop import processar_mensagem
+from app.agent.loop import process_message
 from app.agent.tools import AgentContext
 from app.config import Settings
 from app.llm.base import LLMResponse, ToolCall
@@ -9,30 +9,30 @@ from app.providers.registry import ProviderRegistry
 from app.session.store import SessionStore
 
 BRIEF_CEN2 = {
-    "origem": "São Paulo",
-    "destino": "Paris",
-    "mes_referencia": "fevereiro",
-    "duracao_dias": 3,
-    "adultos": 2,
-    "orcamento_total": 12000,
-    "moeda_exibicao": "BRL",
-    "tipo_viagem": "romantica",
-    "interesses": ["gastronomia", "romantica"],
-    "ritmo": "leve",
+    "origin": "São Paulo",
+    "destination": "Paris",
+    "reference_month": "fevereiro",
+    "duration_days": 3,
+    "adults": 2,
+    "total_budget": 12000,
+    "display_currency": "BRL",
+    "trip_type": "romantic",
+    "interests": ["gastronomia", "romantica"],
+    "pace": "light",
 }
 
 
 @pytest.mark.asyncio
 async def test_cen2_casal_fim_de_semana_romantico(settings: Settings, registry: ProviderRegistry):
-    store = SessionStore(ttl_minutos=60)
-    estado = store.criar()
-    ctx = AgentContext(sessao=estado, registry=registry, settings=settings)
+    store = SessionStore(ttl_minutes=60)
+    state = store.create()
+    ctx = AgentContext(session=state, registry=registry, settings=settings)
 
     llm = FakeLLM(
         script=[
             LLMResponse(
                 content=None,
-                tool_calls=[ToolCall(id="c1", name="atualizar_briefing", arguments=BRIEF_CEN2)],
+                tool_calls=[ToolCall(id="c1", name="update_brief", arguments=BRIEF_CEN2)],
                 finish_reason="tool_calls",
             ),
             LLMResponse(
@@ -41,24 +41,26 @@ async def test_cen2_casal_fim_de_semana_romantico(settings: Settings, registry: 
         ]
     )
 
-    eventos = [e async for e in processar_mensagem(ctx, llm, "Quero um fim de semana romântico em Paris")]
-    assert "plan_ready" in [e["evento"] for e in eventos]
+    events = [e async for e in process_message(ctx, llm, "Quero um fim de semana romântico em Paris")]
+    assert "plan_ready" in [e["event"] for e in events]
 
-    plano = estado.plan
-    assert plano is not None
+    plan = state.plan
+    assert plan is not None
 
     # CEN-2 — critérios de aceite
-    assert len(plano.itinerario) == 3
+    assert len(plan.itinerary) == 3
 
-    dia_chegada = plano.itinerario[0]
-    assert dia_chegada.manha[0].titulo == "Chegada e check-in"
-    dia_partida = plano.itinerario[-1]
-    assert any(a.titulo == "Checkout e deslocamento ao aeroporto" for a in dia_partida.tarde)
-    assert dia_partida.noite == []  # sem atividade à noite no dia de partida (RF-23)
+    arrival_day = plan.itinerary[0]
+    assert arrival_day.morning[0].title == "Chegada e check-in"
+    departure_day = plan.itinerary[-1]
+    assert any(a.title == "Checkout e deslocamento ao aeroporto" for a in departure_day.afternoon)
+    assert departure_day.evening == []  # sem atividade à noite no dia de partida (RF-23)
 
-    for dia in plano.itinerario:
-        regioes_do_dia = {a.regiao for bloco in (dia.manha, dia.tarde, dia.noite) for a in bloco if a.regiao}
-        assert len(regioes_do_dia) <= 1  # agrupamento geográfico (RF-21)
+    for day in plan.itinerary:
+        day_regions = {
+            a.region for block in (day.morning, day.afternoon, day.evening) for a in block if a.region
+        }
+        assert len(day_regions) <= 1  # agrupamento geográfico (RF-21)
 
-    for item in plano.opcoes_voo + plano.opcoes_hospedagem + plano.refeicoes:
-        assert item.fonte is not None  # RNF-01
+    for item in plan.flight_options + plan.accommodation_options + plan.meals:
+        assert item.source is not None  # RNF-01

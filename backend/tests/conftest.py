@@ -11,7 +11,7 @@ def settings() -> Settings:
     return Settings(
         llm_base_url="http://llm.invalid",
         llm_api_key="",
-        llm_model_chain="fake-model-primario",
+        llm_model_chain="fake-model-primary",
         booking_api_key=None,
         tripadvisor_api_key=None,
         exchange_api_url="",
@@ -29,10 +29,10 @@ def registry(settings: Settings) -> ProviderRegistry:
 
 @pytest.fixture
 def session_store(settings: Settings) -> SessionStore:
-    return SessionStore(ttl_minutos=settings.session_ttl_minutes)
+    return SessionStore(ttl_minutes=settings.session_ttl_minutes)
 
 
 @pytest.fixture
 def agent_ctx(settings: Settings, registry: ProviderRegistry, session_store: SessionStore) -> AgentContext:
-    estado = session_store.criar()
-    return AgentContext(sessao=estado, registry=registry, settings=settings)
+    state = session_store.create()
+    return AgentContext(session=state, registry=registry, settings=settings)

@@ -4,107 +4,107 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-TipoViagem = Literal["passeio", "romantica", "familia", "aventura", "cultural", "descanso"]
-Ritmo = Literal["leve", "moderado", "intenso"]
+TripType = Literal["sightseeing", "romantic", "family", "adventure", "cultural", "relaxation"]
+Pace = Literal["light", "moderate", "intense"]
 
 # Campos mínimos obrigatórios para gerar um plano (RF-02).
-CAMPOS_OBRIGATORIOS = ("destino", "datas_ou_duracao", "viajantes", "orcamento_total")
+REQUIRED_FIELDS = ("destination", "dates_or_duration", "travelers", "total_budget")
 
 
 class TripBrief(BaseModel):
     """O que o agente coleta ao longo da conversa (REQUIREMENTS.md §7.1)."""
 
-    origem: str | None = None
-    destino: str | None = None
-    data_ida: date | None = None
-    data_volta: date | None = None
-    mes_referencia: str | None = None
-    duracao_dias: int | None = None
-    datas_flexiveis: bool = False
+    origin: str | None = None
+    destination: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    reference_month: str | None = None
+    duration_days: int | None = None
+    flexible_dates: bool = False
     # None = ainda não informado pelo usuário (RF-02); só assume 1 adulto
     # como inferência explícita no momento de planejar (RF-05).
-    adultos: int | None = None
-    criancas_idades: list[int] = Field(default_factory=list)
-    orcamento_total: Decimal | None = None
-    moeda_orcamento: str = "BRL"
-    moeda_exibicao: str = "BRL"
-    tolerancia_orcamento: float = 0.10
-    tipo_viagem: TipoViagem | None = None
-    interesses: list[str] = Field(default_factory=list)
-    restricoes_alimentares: list[str] = Field(default_factory=list)
-    restricoes_mobilidade: str | None = None
-    outras_restricoes: list[str] = Field(default_factory=list)
-    ritmo: Ritmo = "moderado"
-    nacionalidade: str | None = None
-    campos_inferidos: list[str] = Field(default_factory=list)
+    adults: int | None = None
+    children_ages: list[int] = Field(default_factory=list)
+    total_budget: Decimal | None = None
+    budget_currency: str = "BRL"
+    display_currency: str = "BRL"
+    budget_tolerance: float = 0.10
+    trip_type: TripType | None = None
+    interests: list[str] = Field(default_factory=list)
+    dietary_restrictions: list[str] = Field(default_factory=list)
+    mobility_restrictions: str | None = None
+    other_restrictions: list[str] = Field(default_factory=list)
+    pace: Pace = "moderate"
+    nationality: str | None = None
+    inferred_fields: list[str] = Field(default_factory=list)
 
     @property
-    def total_viajantes(self) -> int:
-        return (self.adultos or 0) + len(self.criancas_idades)
+    def total_travelers(self) -> int:
+        return (self.adults or 0) + len(self.children_ages)
 
     @property
-    def tem_criancas(self) -> bool:
-        return len(self.criancas_idades) > 0
+    def has_children(self) -> bool:
+        return len(self.children_ages) > 0
 
-    def campos_faltantes(self) -> list[str]:
+    def missing_fields(self) -> list[str]:
         """Campos obrigatórios ainda ausentes (RF-02)."""
-        faltantes: list[str] = []
-        if not self.destino:
-            faltantes.append("destino")
-        if not (self.data_ida and self.data_volta) and not (self.mes_referencia and self.duracao_dias):
-            faltantes.append("datas (ou mês + duração)")
-        if self.adultos is None:
-            faltantes.append("número de viajantes")
-        if self.orcamento_total is None:
-            faltantes.append("orçamento")
-        return faltantes
+        missing: list[str] = []
+        if not self.destination:
+            missing.append("destino")
+        if not (self.start_date and self.end_date) and not (self.reference_month and self.duration_days):
+            missing.append("datas (ou mês + duração)")
+        if self.adults is None:
+            missing.append("número de viajantes")
+        if self.total_budget is None:
+            missing.append("orçamento")
+        return missing
 
-    def pronto_para_planejar(self) -> bool:
-        return len(self.campos_faltantes()) == 0
+    def ready_to_plan(self) -> bool:
+        return len(self.missing_fields()) == 0
 
-    def duracao_estimada(self) -> int | None:
-        if self.data_ida and self.data_volta:
-            return (self.data_volta - self.data_ida).days + 1
-        return self.duracao_dias
+    def estimated_duration(self) -> int | None:
+        if self.start_date and self.end_date:
+            return (self.end_date - self.start_date).days + 1
+        return self.duration_days
 
-    def merge(self, **campos_parciais) -> "TripBrief":
+    def merge(self, **partial_fields) -> "TripBrief":
         """Atualiza o briefing com campos parciais, preservando os já definidos.
 
-        RF-04: quando `duracao_dias` é alterado explicitamente sem novas datas
-        exatas no mesmo turno, a `data_volta` antiga (que teria prioridade em
-        `duracao_estimada`) é invalidada para que a nova duração realmente
+        RF-04: quando `duration_days` é alterado explicitamente sem novas datas
+        exatas no mesmo turno, o `end_date` antigo (que teria prioridade em
+        `estimated_duration`) é invalidado para que a nova duração realmente
         seja usada no recálculo do plano.
         """
-        atualizados = self.model_dump()
-        for chave, valor in campos_parciais.items():
-            if valor is None:
+        updated = self.model_dump()
+        for key, value in partial_fields.items():
+            if value is None:
                 continue
-            if chave not in atualizados:
+            if key not in updated:
                 continue
-            atualizados[chave] = valor
+            updated[key] = value
 
-        duracao_mudou = "duracao_dias" in campos_parciais and campos_parciais["duracao_dias"] is not None
-        datas_novas = "data_ida" in campos_parciais or "data_volta" in campos_parciais
-        if duracao_mudou and not datas_novas:
-            data_ida = atualizados.get("data_ida")
-            if data_ida:
-                if isinstance(data_ida, str):
-                    data_ida = date.fromisoformat(data_ida)
-                atualizados["data_volta"] = data_ida + timedelta(days=campos_parciais["duracao_dias"] - 1)
+        duration_changed = "duration_days" in partial_fields and partial_fields["duration_days"] is not None
+        new_dates = "start_date" in partial_fields or "end_date" in partial_fields
+        if duration_changed and not new_dates:
+            start_date = updated.get("start_date")
+            if start_date:
+                if isinstance(start_date, str):
+                    start_date = date.fromisoformat(start_date)
+                updated["end_date"] = start_date + timedelta(days=partial_fields["duration_days"] - 1)
             else:
-                atualizados["data_volta"] = None
+                updated["end_date"] = None
 
-        return TripBrief(**atualizados)
+        return TripBrief(**updated)
 
-    def com_inferencias_padrao(self) -> "TripBrief":
+    def with_default_inferences(self) -> "TripBrief":
         """Aplica inferências determinísticas de ritmo quando o usuário não
         declarou (RF-05, RF-22): viagens com crianças ou mobilidade reduzida
         assumem ritmo leve por padrão."""
-        precisa_ritmo_leve = self.tem_criancas or bool(self.restricoes_mobilidade)
-        ja_inferido = "ritmo" in self.campos_inferidos
-        if precisa_ritmo_leve and self.ritmo == "moderado" and not ja_inferido:
-            atualizados = self.model_dump()
-            atualizados["ritmo"] = "leve"
-            atualizados["campos_inferidos"] = [*self.campos_inferidos, "ritmo"]
-            return TripBrief(**atualizados)
+        needs_light_pace = self.has_children or bool(self.mobility_restrictions)
+        already_inferred = "pace" in self.inferred_fields
+        if needs_light_pace and self.pace == "moderate" and not already_inferred:
+            updated = self.model_dump()
+            updated["pace"] = "light"
+            updated["inferred_fields"] = [*self.inferred_fields, "pace"]
+            return TripBrief(**updated)
         return self

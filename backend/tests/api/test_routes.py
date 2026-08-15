@@ -24,7 +24,7 @@ def test_health(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
-    assert body["provedores"]["booking"] == "mock"
+    assert body["providers"]["booking"] == "mock"
 
 
 def test_criar_sessao(client):
@@ -33,14 +33,14 @@ def test_criar_sessao(client):
     assert resp.status_code == 200
     body = resp.json()
     assert "session_id" in body
-    assert body["ttl_minutos"] == 60
+    assert body["ttl_minutes"] == 60
 
 
 def test_brief_de_sessao_inexistente_retorna_404(client):
     _app, c = client
     resp = c.get("/api/session/nao-existe/brief")
     assert resp.status_code == 404
-    assert resp.json()["erro"]["codigo"] == "sessao_invalida"
+    assert resp.json()["error"]["code"] == "invalid_session"
 
 
 def test_plano_indisponivel_antes_de_conversar(client):
@@ -48,7 +48,7 @@ def test_plano_indisponivel_antes_de_conversar(client):
     session_id = c.post("/api/session").json()["session_id"]
     resp = c.get(f"/api/session/{session_id}/plan")
     assert resp.status_code == 409
-    assert resp.json()["erro"]["codigo"] == "plano_nao_disponivel"
+    assert resp.json()["error"]["code"] == "plan_not_available"
 
 
 def test_fluxo_completo_chat_ate_export(client):
@@ -60,14 +60,14 @@ def test_fluxo_completo_chat_ate_export(client):
                 tool_calls=[
                     ToolCall(
                         id="c1",
-                        name="atualizar_briefing",
+                        name="update_brief",
                         arguments={
-                            "origem": "São Paulo",
-                            "destino": "Florianópolis",
-                            "mes_referencia": "janeiro",
-                            "duracao_dias": 5,
-                            "adultos": 1,
-                            "orcamento_total": 4000,
+                            "origin": "São Paulo",
+                            "destination": "Florianópolis",
+                            "reference_month": "janeiro",
+                            "duration_days": 5,
+                            "adults": 1,
+                            "total_budget": 4000,
                         },
                     )
                 ],
@@ -78,10 +78,10 @@ def test_fluxo_completo_chat_ate_export(client):
     )
     session_id = c.post("/api/session").json()["session_id"]
 
-    with c.stream("POST", "/api/chat", json={"session_id": session_id, "mensagem": "quero viajar"}) as resp:
+    with c.stream("POST", "/api/chat", json={"session_id": session_id, "message": "quero viajar"}) as resp:
         assert resp.status_code == 200
-        eventos = list(resp.iter_lines())
-    assert any("plan_ready" in linha for linha in eventos)
+        events = list(resp.iter_lines())
+    assert any("plan_ready" in line for line in events)
 
     resp_plan = c.get(f"/api/session/{session_id}/plan")
     assert resp_plan.status_code == 200

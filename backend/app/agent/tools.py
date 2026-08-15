@@ -4,17 +4,17 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from app.agent.budget import calcular_orcamento
-from app.agent.cache import chamada_cacheada, chave_cache
+from app.agent.budget import calculate_budget
+from app.agent.cache import cache_key, cached_call
 from app.config import Settings
-from app.geo import descricao_clima_heuristica, eh_internacional, tomada_do_destino
-from app.models.common import Fonte
+from app.geo import heuristic_weather_description, is_international, outlet_for_destination
+from app.models.common import Source
 from app.providers.base import (
-    CriteriosAtracoes,
-    CriteriosCambio,
-    CriteriosHospedagem,
-    CriteriosRestaurantes,
-    CriteriosVoo,
+    AccommodationCriteria,
+    AttractionsCriteria,
+    ExchangeCriteria,
+    FlightCriteria,
+    RestaurantsCriteria,
 )
 from app.providers.registry import ProviderRegistry
 from app.session.store import SessionState
@@ -22,276 +22,276 @@ from app.session.store import SessionState
 
 @dataclass
 class AgentContext:
-    sessao: SessionState
+    session: SessionState
     registry: ProviderRegistry
     settings: Settings
 
 
-def _slug(texto: str) -> str:
-    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().strip().lower()
+def _slug(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().strip().lower()
 
 
-def _parse_data(valor: str | None) -> date | None:
-    if not valor:
+def _parse_date(value: str | None) -> date | None:
+    if not value:
         return None
     try:
-        return date.fromisoformat(valor)
+        return date.fromisoformat(value)
     except ValueError:
         return None
 
 
-async def tool_atualizar_briefing(ctx: AgentContext, **campos: Any) -> dict:
-    ctx.sessao.brief = ctx.sessao.brief.merge(**campos).com_inferencias_padrao()
+async def tool_update_brief(ctx: AgentContext, **fields: Any) -> dict:
+    ctx.session.brief = ctx.session.brief.merge(**fields).with_default_inferences()
     return {
-        "briefing": ctx.sessao.brief.model_dump(mode="json"),
-        "campos_faltantes": ctx.sessao.brief.campos_faltantes(),
-        "pronto_para_planejar": ctx.sessao.brief.pronto_para_planejar(),
+        "brief": ctx.session.brief.model_dump(mode="json"),
+        "missing_fields": ctx.session.brief.missing_fields(),
+        "ready_to_plan": ctx.session.brief.ready_to_plan(),
     }
 
 
-async def _com_contagem_e_cache(ctx: AgentContext, chave: str, produzir):
+async def _with_count_and_cache(ctx: AgentContext, key: str, produce):
     """Envolve uma busca de provedor com cache por sessão (RF-17) e conta a
     chamada contra o teto por sessão (RNF-08) — usado tanto pelas ferramentas
     expostas ao LLM quanto pelo pipeline determinístico do planner, para que
     ambos os caminhos respeitem o mesmo orçamento de chamadas."""
-    ctx.sessao.chamadas_de_ferramenta += 1
-    return await chamada_cacheada(ctx.sessao, chave, ctx.settings.cache_ttl_minutes, produzir)
+    ctx.session.tool_calls_made += 1
+    return await cached_call(ctx.session, key, ctx.settings.cache_ttl_minutes, produce)
 
 
-async def buscar_hospedagem_cacheada(
+async def search_accommodation_cached(
     ctx: AgentContext,
-    cidade: str,
+    city: str,
     check_in: date | None,
     check_out: date | None,
-    hospedes: int,
-    avisos: list[str],
-    preco_min: Decimal | None = None,
-    preco_max: Decimal | None = None,
+    guests: int,
+    warnings: list[str],
+    min_price: Decimal | None = None,
+    max_price: Decimal | None = None,
 ):
-    criterios = CriteriosHospedagem(
-        cidade=cidade,
+    criteria = AccommodationCriteria(
+        city=city,
         check_in=check_in,
         check_out=check_out,
-        hospedes=hospedes,
-        preco_min=preco_min,
-        preco_max=preco_max,
-        moeda=ctx.sessao.brief.moeda_exibicao,
+        guests=guests,
+        min_price=min_price,
+        max_price=max_price,
+        currency=ctx.session.brief.display_currency,
     )
-    chave = chave_cache(
-        "buscar_hospedagem", cidade=_slug(cidade), check_in=str(check_in), check_out=str(check_out)
+    key = cache_key(
+        "search_accommodation", city=_slug(city), check_in=str(check_in), check_out=str(check_out)
     )
-    return await _com_contagem_e_cache(ctx, chave, lambda: ctx.registry.buscar_hospedagem(criterios, avisos))
+    return await _with_count_and_cache(
+        ctx, key, lambda: ctx.registry.search_accommodation(criteria, warnings)
+    )
 
 
-async def buscar_atracoes_cacheada(
-    ctx: AgentContext, cidade: str, interesses: list[str], perfil: str, avisos: list[str]
+async def search_attractions_cached(
+    ctx: AgentContext, city: str, interests: list[str], profile: str, warnings: list[str]
 ):
-    criterios = CriteriosAtracoes(cidade=cidade, interesses=interesses, perfil=perfil)
-    chave = chave_cache("buscar_atracoes", cidade=_slug(cidade), interesses=sorted(interesses))
-    return await _com_contagem_e_cache(ctx, chave, lambda: ctx.registry.buscar_atracoes(criterios, avisos))
+    criteria = AttractionsCriteria(city=city, interests=interests, profile=profile)
+    key = cache_key("search_attractions", city=_slug(city), interests=sorted(interests))
+    return await _with_count_and_cache(ctx, key, lambda: ctx.registry.search_attractions(criteria, warnings))
 
 
-async def buscar_restaurantes_cacheada(
-    ctx: AgentContext, cidade: str, restricoes: list[str], avisos: list[str], faixa_preco: str | None = None
+async def search_restaurants_cached(
+    ctx: AgentContext, city: str, restrictions: list[str], warnings: list[str], price_range: str | None = None
 ):
-    criterios = CriteriosRestaurantes(cidade=cidade, restricoes=restricoes, faixa_preco=faixa_preco)
-    chave = chave_cache("buscar_restaurantes", cidade=_slug(cidade), restricoes=sorted(restricoes))
-    return await _com_contagem_e_cache(
-        ctx, chave, lambda: ctx.registry.buscar_restaurantes(criterios, avisos)
-    )
+    criteria = RestaurantsCriteria(city=city, restrictions=restrictions, price_range=price_range)
+    key = cache_key("search_restaurants", city=_slug(city), restrictions=sorted(restrictions))
+    return await _with_count_and_cache(ctx, key, lambda: ctx.registry.search_restaurants(criteria, warnings))
 
 
-async def estimar_voos_cacheado(
+async def estimate_flights_cached(
     ctx: AgentContext,
-    origem: str,
-    destino: str,
-    data_ida: date | None,
-    data_volta: date | None,
-    passageiros: int,
-    avisos: list[str],
+    origin: str,
+    destination: str,
+    departure_date: date | None,
+    return_date: date | None,
+    passengers: int,
+    warnings: list[str],
 ):
-    criterios = CriteriosVoo(
-        origem=origem,
-        destino=destino,
-        data_ida=data_ida,
-        data_volta=data_volta,
-        passageiros=passageiros,
-        moeda=ctx.sessao.brief.moeda_exibicao,
+    criteria = FlightCriteria(
+        origin=origin,
+        destination=destination,
+        departure_date=departure_date,
+        return_date=return_date,
+        passengers=passengers,
+        currency=ctx.session.brief.display_currency,
     )
-    chave = chave_cache("estimar_voos", origem=_slug(origem), destino=_slug(destino))
-    return await _com_contagem_e_cache(ctx, chave, lambda: ctx.registry.estimar_voos(criterios, avisos))
+    key = cache_key("estimate_flights", origin=_slug(origin), destination=_slug(destination))
+    return await _with_count_and_cache(ctx, key, lambda: ctx.registry.estimate_flights(criteria, warnings))
 
 
-async def cotar_cambio_cacheado(ctx: AgentContext, moeda_origem: str, moeda_destino: str, avisos: list[str]):
-    criterios = CriteriosCambio(moeda_origem=moeda_origem, moeda_destino=moeda_destino)
-    chave = chave_cache("cotar_cambio", moeda_origem=moeda_origem, moeda_destino=moeda_destino)
-    return await _com_contagem_e_cache(ctx, chave, lambda: ctx.registry.cotar_cambio(criterios, avisos))
+async def get_exchange_rate_cached(
+    ctx: AgentContext, source_currency: str, target_currency: str, warnings: list[str]
+):
+    criteria = ExchangeCriteria(source_currency=source_currency, target_currency=target_currency)
+    key = cache_key("get_exchange_rate", source_currency=source_currency, target_currency=target_currency)
+    return await _with_count_and_cache(ctx, key, lambda: ctx.registry.get_exchange_rate(criteria, warnings))
 
 
-async def tool_buscar_hospedagem(
+async def tool_search_accommodation(
     ctx: AgentContext,
-    cidade: str,
+    city: str,
     check_in: str | None = None,
     check_out: str | None = None,
-    hospedes: int = 1,
-    preco_min: float | None = None,
-    preco_max: float | None = None,
+    guests: int = 1,
+    min_price: float | None = None,
+    max_price: float | None = None,
 ) -> dict:
-    avisos: list[str] = []
-    resultado = await buscar_hospedagem_cacheada(
+    warnings: list[str] = []
+    result = await search_accommodation_cached(
         ctx,
-        cidade,
-        _parse_data(check_in),
-        _parse_data(check_out),
-        hospedes,
-        avisos,
-        Decimal(str(preco_min)) if preco_min is not None else None,
-        Decimal(str(preco_max)) if preco_max is not None else None,
+        city,
+        _parse_date(check_in),
+        _parse_date(check_out),
+        guests,
+        warnings,
+        Decimal(str(min_price)) if min_price is not None else None,
+        Decimal(str(max_price)) if max_price is not None else None,
     )
     return {
-        "opcoes": [o.model_dump(mode="json") for o in resultado.itens],
-        "motivo_vazio": resultado.motivo_vazio,
-        "avisos": avisos,
+        "options": [o.model_dump(mode="json") for o in result.items],
+        "empty_reason": result.empty_reason,
+        "warnings": warnings,
     }
 
 
-async def tool_buscar_atracoes(
+async def tool_search_attractions(
     ctx: AgentContext,
-    cidade: str,
-    interesses: list[str] | None = None,
-    perfil: str = "geral",
+    city: str,
+    interests: list[str] | None = None,
+    profile: str = "geral",
 ) -> dict:
-    avisos: list[str] = []
-    resultado = await buscar_atracoes_cacheada(ctx, cidade, interesses or [], perfil, avisos)
+    warnings: list[str] = []
+    result = await search_attractions_cached(ctx, city, interests or [], profile, warnings)
     return {
-        "atracoes": [a.model_dump(mode="json") for a in resultado.itens],
-        "motivo_vazio": resultado.motivo_vazio,
-        "avisos": avisos,
+        "attractions": [a.model_dump(mode="json") for a in result.items],
+        "empty_reason": result.empty_reason,
+        "warnings": warnings,
     }
 
 
-async def tool_buscar_restaurantes(
+async def tool_search_restaurants(
     ctx: AgentContext,
-    cidade: str,
-    restricoes: list[str] | None = None,
-    faixa_preco: str | None = None,
+    city: str,
+    restrictions: list[str] | None = None,
+    price_range: str | None = None,
 ) -> dict:
-    avisos: list[str] = []
-    resultado = await buscar_restaurantes_cacheada(ctx, cidade, restricoes or [], avisos, faixa_preco)
+    warnings: list[str] = []
+    result = await search_restaurants_cached(ctx, city, restrictions or [], warnings, price_range)
     return {
-        "restaurantes": [r.model_dump(mode="json") for r in resultado.itens],
-        "motivo_vazio": resultado.motivo_vazio,
-        "avisos": avisos,
+        "restaurants": [r.model_dump(mode="json") for r in result.items],
+        "empty_reason": result.empty_reason,
+        "warnings": warnings,
     }
 
 
-async def tool_estimar_voos(
+async def tool_estimate_flights(
     ctx: AgentContext,
-    origem: str,
-    destino: str,
-    data_ida: str | None = None,
-    data_volta: str | None = None,
-    passageiros: int = 1,
+    origin: str,
+    destination: str,
+    departure_date: str | None = None,
+    return_date: str | None = None,
+    passengers: int = 1,
 ) -> dict:
-    avisos: list[str] = []
-    resultado = await estimar_voos_cacheado(
-        ctx, origem, destino, _parse_data(data_ida), _parse_data(data_volta), passageiros, avisos
+    warnings: list[str] = []
+    result = await estimate_flights_cached(
+        ctx, origin, destination, _parse_date(departure_date), _parse_date(return_date), passengers, warnings
     )
     return {
-        "opcoes": [o.model_dump(mode="json") for o in resultado.itens],
-        "motivo_vazio": resultado.motivo_vazio,
-        "avisos": avisos,
+        "options": [o.model_dump(mode="json") for o in result.items],
+        "empty_reason": result.empty_reason,
+        "warnings": warnings,
     }
 
 
-async def tool_cotar_cambio(ctx: AgentContext, moeda_origem: str, moeda_destino: str) -> dict:
-    avisos: list[str] = []
-    cotacao = await cotar_cambio_cacheado(ctx, moeda_origem, moeda_destino, avisos)
-    if cotacao is None:
-        return {"cotacao": None, "motivo_vazio": "Par de moedas não suportado.", "avisos": avisos}
-    return {"cotacao": cotacao.model_dump(mode="json"), "motivo_vazio": None, "avisos": avisos}
+async def tool_get_exchange_rate(ctx: AgentContext, source_currency: str, target_currency: str) -> dict:
+    warnings: list[str] = []
+    rate = await get_exchange_rate_cached(ctx, source_currency, target_currency, warnings)
+    if rate is None:
+        return {"rate": None, "empty_reason": "Par de moedas não suportado.", "warnings": warnings}
+    return {"rate": rate.model_dump(mode="json"), "empty_reason": None, "warnings": warnings}
 
 
-async def tool_info_pratica(
+async def tool_practical_info(
     ctx: AgentContext,
-    destino: str,
-    nacionalidade: str | None = None,
-    periodo: str | None = None,
+    destination: str,
+    nationality: str | None = None,
+    period: str | None = None,
 ) -> dict:
     """Checklist prático: clima, documentação, tomada/adaptador, moeda (RF-27/28).
 
     Heurística leve e sempre rotulada como estimativa — nunca dado oficial.
     """
-    internacional = eh_internacional(destino, ctx.sessao.brief.moeda_orcamento)
-    requisitos_entrada: list[str] = []
-    if internacional:
-        requisitos_entrada = [
-            f"Verifique exigência de visto/autorização de viagem para {nacionalidade or 'sua nacionalidade'} "
-            f"rumo a {destino} na fonte oficial do consulado/imigração antes de comprar passagens.",
+    international = is_international(destination, ctx.session.brief.budget_currency)
+    entry_requirements: list[str] = []
+    if international:
+        entry_requirements = [
+            f"Verifique exigência de visto/autorização de viagem para {nationality or 'sua nacionalidade'} "
+            f"rumo a {destination} na fonte oficial do consulado/imigração antes de comprar passagens.",
             "Confirme validade mínima do passaporte exigida pelo país de destino (geralmente 6 meses).",
         ]
-    fonte = Fonte(
-        tipo="estimativa",
-        provedor="web",
+    source = Source(
+        type="estimate",
+        provider="web",
         url=None,
-        consultado_em=datetime.now(UTC),
-        confianca="baixa",
-        observacao="Informação heurística geral; sempre confirme em fonte oficial antes da viagem.",
+        retrieved_at=datetime.now(UTC),
+        confidence="low",
+        note="Informação heurística geral; sempre confirme em fonte oficial antes da viagem.",
     )
-    documentos_base = ["Reserva de hospedagem impressa/digital"]
-    documentos_base += (
+    base_documents = ["Reserva de hospedagem impressa/digital"]
+    base_documents += (
         ["Passaporte válido", "Verificar exigência de visto"]
-        if internacional
+        if international
         else ["Documento de identidade com foto"]
     )
-    mes_numero = ctx.sessao.brief.data_ida.month if ctx.sessao.brief.data_ida else None
+    month_number = ctx.session.brief.start_date.month if ctx.session.brief.start_date else None
     checklist = {
-        "documentos": documentos_base,
-        "clima": descricao_clima_heuristica(destino, periodo, mes_numero),
-        "moeda_e_cambio": ctx.sessao.brief.moeda_exibicao,
-        "tomada_adaptador": f"Padrão local: {tomada_do_destino(destino)}. Leve adaptador universal.",
-        "o_que_levar": [
+        "documents": base_documents,
+        "weather": heuristic_weather_description(destination, period, month_number),
+        "currency_and_exchange": ctx.session.brief.display_currency,
+        "power_outlet": f"Padrão local: {outlet_for_destination(destination)}. Leve adaptador universal.",
+        "what_to_pack": [
             "Adaptador de tomada",
             "Medicamentos de uso pessoal",
             "Cópia de documentos",
         ],
-        "requisitos_entrada": requisitos_entrada,
+        "entry_requirements": entry_requirements,
     }
-    return {"checklist": checklist, "fonte": fonte.model_dump(mode="json")}
+    return {"checklist": checklist, "source": source.model_dump(mode="json")}
 
 
-async def tool_calcular_orcamento(
+async def tool_calculate_budget(
     ctx: AgentContext,
-    voos: float = 0,
-    hospedagem: float = 0,
-    alimentacao: float = 0,
-    passeios: float = 0,
-    transporte_local: float = 0,
-    teto_informado: float | None = None,
+    flights: float = 0,
+    accommodation: float = 0,
+    food: float = 0,
+    activities: float = 0,
+    local_transport: float = 0,
+    stated_cap: float | None = None,
 ) -> dict:
-    orcamento = calcular_orcamento(
-        voos=Decimal(str(voos)),
-        hospedagem=Decimal(str(hospedagem)),
-        alimentacao=Decimal(str(alimentacao)),
-        passeios=Decimal(str(passeios)),
-        transporte_local=Decimal(str(transporte_local)),
-        teto_informado=Decimal(str(teto_informado))
-        if teto_informado is not None
-        else (ctx.sessao.brief.orcamento_total),
-        tolerancia=ctx.sessao.brief.tolerancia_orcamento,
+    budget = calculate_budget(
+        flights=Decimal(str(flights)),
+        accommodation=Decimal(str(accommodation)),
+        food=Decimal(str(food)),
+        activities=Decimal(str(activities)),
+        local_transport=Decimal(str(local_transport)),
+        stated_cap=Decimal(str(stated_cap)) if stated_cap is not None else (ctx.session.brief.total_budget),
+        tolerance=ctx.session.brief.budget_tolerance,
     )
-    return {"orcamento": orcamento.model_dump(mode="json")}
+    return {"budget": budget.model_dump(mode="json")}
 
 
 TOOL_HANDLERS = {
-    "atualizar_briefing": tool_atualizar_briefing,
-    "buscar_hospedagem": tool_buscar_hospedagem,
-    "buscar_atracoes": tool_buscar_atracoes,
-    "buscar_restaurantes": tool_buscar_restaurantes,
-    "estimar_voos": tool_estimar_voos,
-    "cotar_cambio": tool_cotar_cambio,
-    "info_pratica": tool_info_pratica,
-    "calcular_orcamento": tool_calcular_orcamento,
+    "update_brief": tool_update_brief,
+    "search_accommodation": tool_search_accommodation,
+    "search_attractions": tool_search_attractions,
+    "search_restaurants": tool_search_restaurants,
+    "estimate_flights": tool_estimate_flights,
+    "get_exchange_rate": tool_get_exchange_rate,
+    "practical_info": tool_practical_info,
+    "calculate_budget": tool_calculate_budget,
 }
 
 
@@ -299,41 +299,41 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "atualizar_briefing",
+            "name": "update_brief",
             "description": "Atualiza o TripBrief com os campos que o usuário informou nesta mensagem.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "origem": {"type": "string"},
-                    "destino": {"type": "string"},
-                    "data_ida": {"type": "string", "format": "date"},
-                    "data_volta": {"type": "string", "format": "date"},
-                    "mes_referencia": {"type": "string"},
-                    "duracao_dias": {"type": "integer"},
-                    "datas_flexiveis": {"type": "boolean"},
-                    "adultos": {"type": "integer"},
-                    "criancas_idades": {"type": "array", "items": {"type": "integer"}},
-                    "orcamento_total": {"type": "number"},
-                    "moeda_orcamento": {"type": "string"},
-                    "moeda_exibicao": {"type": "string"},
-                    "tipo_viagem": {
+                    "origin": {"type": "string"},
+                    "destination": {"type": "string"},
+                    "start_date": {"type": "string", "format": "date"},
+                    "end_date": {"type": "string", "format": "date"},
+                    "reference_month": {"type": "string"},
+                    "duration_days": {"type": "integer"},
+                    "flexible_dates": {"type": "boolean"},
+                    "adults": {"type": "integer"},
+                    "children_ages": {"type": "array", "items": {"type": "integer"}},
+                    "total_budget": {"type": "number"},
+                    "budget_currency": {"type": "string"},
+                    "display_currency": {"type": "string"},
+                    "trip_type": {
                         "type": "string",
                         "enum": [
-                            "passeio",
-                            "romantica",
-                            "familia",
-                            "aventura",
+                            "sightseeing",
+                            "romantic",
+                            "family",
+                            "adventure",
                             "cultural",
-                            "descanso",
+                            "relaxation",
                         ],
                     },
-                    "interesses": {"type": "array", "items": {"type": "string"}},
-                    "restricoes_alimentares": {"type": "array", "items": {"type": "string"}},
-                    "restricoes_mobilidade": {"type": "string"},
-                    "outras_restricoes": {"type": "array", "items": {"type": "string"}},
-                    "ritmo": {"type": "string", "enum": ["leve", "moderado", "intenso"]},
-                    "nacionalidade": {"type": "string"},
-                    "campos_inferidos": {"type": "array", "items": {"type": "string"}},
+                    "interests": {"type": "array", "items": {"type": "string"}},
+                    "dietary_restrictions": {"type": "array", "items": {"type": "string"}},
+                    "mobility_restrictions": {"type": "string"},
+                    "other_restrictions": {"type": "array", "items": {"type": "string"}},
+                    "pace": {"type": "string", "enum": ["light", "moderate", "intense"]},
+                    "nationality": {"type": "string"},
+                    "inferred_fields": {"type": "array", "items": {"type": "string"}},
                 },
             },
         },
@@ -341,117 +341,117 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
-            "name": "buscar_hospedagem",
+            "name": "search_accommodation",
             "description": "Busca opções de hospedagem no destino.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "cidade": {"type": "string"},
+                    "city": {"type": "string"},
                     "check_in": {"type": "string", "format": "date"},
                     "check_out": {"type": "string", "format": "date"},
-                    "hospedes": {"type": "integer"},
-                    "preco_min": {"type": "number"},
-                    "preco_max": {"type": "number"},
+                    "guests": {"type": "integer"},
+                    "min_price": {"type": "number"},
+                    "max_price": {"type": "number"},
                 },
-                "required": ["cidade"],
+                "required": ["city"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "buscar_atracoes",
+            "name": "search_attractions",
             "description": "Busca atrações e passeios compatíveis com os interesses do viajante.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "cidade": {"type": "string"},
-                    "interesses": {"type": "array", "items": {"type": "string"}},
-                    "perfil": {"type": "string"},
+                    "city": {"type": "string"},
+                    "interests": {"type": "array", "items": {"type": "string"}},
+                    "profile": {"type": "string"},
                 },
-                "required": ["cidade"],
+                "required": ["city"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "buscar_restaurantes",
+            "name": "search_restaurants",
             "description": "Busca restaurantes respeitando restrições alimentares.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "cidade": {"type": "string"},
-                    "restricoes": {"type": "array", "items": {"type": "string"}},
-                    "faixa_preco": {"type": "string"},
+                    "city": {"type": "string"},
+                    "restrictions": {"type": "array", "items": {"type": "string"}},
+                    "price_range": {"type": "string"},
                 },
-                "required": ["cidade"],
+                "required": ["city"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "estimar_voos",
+            "name": "estimate_flights",
             "description": "Estima faixa de preço de voos por rota e época (nunca valor único).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "origem": {"type": "string"},
-                    "destino": {"type": "string"},
-                    "data_ida": {"type": "string", "format": "date"},
-                    "data_volta": {"type": "string", "format": "date"},
-                    "passageiros": {"type": "integer"},
+                    "origin": {"type": "string"},
+                    "destination": {"type": "string"},
+                    "departure_date": {"type": "string", "format": "date"},
+                    "return_date": {"type": "string", "format": "date"},
+                    "passengers": {"type": "integer"},
                 },
-                "required": ["origem", "destino"],
+                "required": ["origin", "destination"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "cotar_cambio",
+            "name": "get_exchange_rate",
             "description": "Cota câmbio entre duas moedas.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "moeda_origem": {"type": "string"},
-                    "moeda_destino": {"type": "string"},
+                    "source_currency": {"type": "string"},
+                    "target_currency": {"type": "string"},
                 },
-                "required": ["moeda_origem", "moeda_destino"],
+                "required": ["source_currency", "target_currency"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "info_pratica",
+            "name": "practical_info",
             "description": "Retorna clima, documentação, tomada/adaptador e moeda para o destino.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "destino": {"type": "string"},
-                    "nacionalidade": {"type": "string"},
-                    "periodo": {"type": "string"},
+                    "destination": {"type": "string"},
+                    "nationality": {"type": "string"},
+                    "period": {"type": "string"},
                 },
-                "required": ["destino"],
+                "required": ["destination"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "calcular_orcamento",
+            "name": "calculate_budget",
             "description": "Calcula o orçamento por categoria, com contingência e alertas de estouro.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "voos": {"type": "number"},
-                    "hospedagem": {"type": "number"},
-                    "alimentacao": {"type": "number"},
-                    "passeios": {"type": "number"},
-                    "transporte_local": {"type": "number"},
-                    "teto_informado": {"type": "number"},
+                    "flights": {"type": "number"},
+                    "accommodation": {"type": "number"},
+                    "food": {"type": "number"},
+                    "activities": {"type": "number"},
+                    "local_transport": {"type": "number"},
+                    "stated_cap": {"type": "number"},
                 },
             },
         },

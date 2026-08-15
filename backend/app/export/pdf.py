@@ -1,7 +1,7 @@
 import markdown as md_lib
 from weasyprint import HTML
 
-from app.export.markdown import gerar_markdown
+from app.export.markdown import generate_markdown
 from app.models.plan import TripPlan
 
 _CSS = """
@@ -17,9 +17,9 @@ blockquote { background: #fff8e1; border-left: 4px solid #f5c518; margin: 0.8em 
 """
 
 
-def gerar_pdf_bytes(plan: TripPlan) -> bytes:
+def generate_pdf_bytes(plan: TripPlan) -> bytes:
     """Exporta o plano em PDF formatado a partir do Markdown (RF-31)."""
-    conteudo_md = gerar_markdown(plan)
-    corpo_html = md_lib.markdown(conteudo_md, extensions=["tables"])
-    html_completo = f"<html><head><style>{_CSS}</style></head><body>{corpo_html}</body></html>"
-    return HTML(string=html_completo).write_pdf()
+    md_content = generate_markdown(plan)
+    html_body = md_lib.markdown(md_content, extensions=["tables"])
+    full_html = f"<html><head><style>{_CSS}</style></head><body>{html_body}</body></html>"
+    return HTML(string=full_html).write_pdf()

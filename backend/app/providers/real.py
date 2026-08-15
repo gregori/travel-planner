@@ -13,33 +13,33 @@ from decimal import Decimal
 import httpx
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
-from app.models.common import Fonte
-from app.models.plan import Atividade, CotacaoCambio, OpcaoHospedagem, SugestaoRefeicao
+from app.models.common import Source
+from app.models.plan import AccommodationOption, Activity, ExchangeRate, MealSuggestion
 from app.providers.base import (
-    CriteriosAtracoes,
-    CriteriosCambio,
-    CriteriosHospedagem,
-    CriteriosRestaurantes,
-    ResultadoBusca,
+    AccommodationCriteria,
+    AttractionsCriteria,
+    ExchangeCriteria,
+    RestaurantsCriteria,
+    SearchResult,
 )
 
-TIMEOUT_SEGUNDOS = 10.0
+TIMEOUT_SECONDS = 10.0
 
-_retry_chamada_externa = retry(
+_retry_external_call = retry(
     stop=stop_after_attempt(3),
     wait=wait_random_exponential(multiplier=1, max=8),
     reraise=True,
 )
 
 
-def _fonte_real(provedor: str, url: str | None, confianca: str = "alta") -> Fonte:
-    return Fonte(
-        tipo="real",
-        provedor=provedor,
+def _real_source(provider: str, url: str | None, confidence: str = "high") -> Source:
+    return Source(
+        type="real",
+        provider=provider,
         url=url,
-        consultado_em=datetime.now(UTC),
-        confianca=confianca,  # type: ignore[arg-type]
-        observacao=None,
+        retrieved_at=datetime.now(UTC),
+        confidence=confidence,  # type: ignore[arg-type]
+        note=None,
     )
 
 
@@ -50,37 +50,37 @@ class BookingProvider:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
 
-    @_retry_chamada_externa
-    async def buscar(self, criterios: CriteriosHospedagem) -> ResultadoBusca[OpcaoHospedagem]:
-        async with httpx.AsyncClient(timeout=TIMEOUT_SEGUNDOS) as client:
+    @_retry_external_call
+    async def search(self, criteria: AccommodationCriteria) -> SearchResult[AccommodationOption]:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             resp = await client.get(
                 f"{self._base_url}/hotels",
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 params={
-                    "city": criterios.cidade,
-                    "checkin": criterios.check_in.isoformat() if criterios.check_in else None,
-                    "checkout": criterios.check_out.isoformat() if criterios.check_out else None,
-                    "guests": criterios.hospedes,
+                    "city": criteria.city,
+                    "checkin": criteria.check_in.isoformat() if criteria.check_in else None,
+                    "checkout": criteria.check_out.isoformat() if criteria.check_out else None,
+                    "guests": criteria.guests,
                 },
             )
             resp.raise_for_status()
             data = resp.json()
 
-        itens = [
-            OpcaoHospedagem(
-                nome=h["name"],
-                tipo=h.get("type", "hotel"),
-                preco_por_noite=Decimal(str(h["price_per_night"])),
-                moeda=h.get("currency", criterios.moeda),
-                localizacao=h.get("location", criterios.cidade),
-                avaliacao=h.get("rating"),
+        items = [
+            AccommodationOption(
+                name=h["name"],
+                type=h.get("type", "hotel"),
+                price_per_night=Decimal(str(h["price_per_night"])),
+                currency=h.get("currency", criteria.currency),
+                location=h.get("location", criteria.city),
+                rating=h.get("rating"),
                 link=h.get("url"),
-                fonte=_fonte_real("booking", h.get("url")),
+                source=_real_source("booking", h.get("url")),
             )
             for h in data.get("hotels", [])
         ]
-        motivo = None if itens else "Booking.com não retornou opções para os critérios informados."
-        return ResultadoBusca(itens=itens, motivo_vazio=motivo)
+        reason = None if items else "Booking.com não retornou opções para os critérios informados."
+        return SearchResult(items=items, empty_reason=reason)
 
 
 class TripadvisorProvider:
@@ -90,62 +90,62 @@ class TripadvisorProvider:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
 
-    @_retry_chamada_externa
-    async def buscar_atracoes(self, criterios: CriteriosAtracoes) -> ResultadoBusca[Atividade]:
-        async with httpx.AsyncClient(timeout=TIMEOUT_SEGUNDOS) as client:
+    @_retry_external_call
+    async def search_attractions(self, criteria: AttractionsCriteria) -> SearchResult[Activity]:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             resp = await client.get(
                 f"{self._base_url}/location/search",
                 headers={"accept": "application/json"},
                 params={
                     "key": self._api_key,
-                    "searchQuery": criterios.cidade,
+                    "searchQuery": criteria.city,
                     "category": "attractions",
                 },
             )
             resp.raise_for_status()
             data = resp.json()
 
-        itens = [
-            Atividade(
-                titulo=loc["name"],
-                descricao=loc.get("description"),
-                regiao=loc.get("address_obj", {}).get("city", criterios.cidade),
-                fonte=_fonte_real("tripadvisor", loc.get("web_url")),
+        items = [
+            Activity(
+                title=loc["name"],
+                description=loc.get("description"),
+                region=loc.get("address_obj", {}).get("city", criteria.city),
+                source=_real_source("tripadvisor", loc.get("web_url")),
             )
             for loc in data.get("data", [])
         ]
-        motivo = None if itens else "Tripadvisor não retornou atrações para o destino informado."
-        return ResultadoBusca(itens=itens, motivo_vazio=motivo)
+        reason = None if items else "Tripadvisor não retornou atrações para o destino informado."
+        return SearchResult(items=items, empty_reason=reason)
 
-    @_retry_chamada_externa
-    async def buscar_restaurantes(self, criterios: CriteriosRestaurantes) -> ResultadoBusca[SugestaoRefeicao]:
-        async with httpx.AsyncClient(timeout=TIMEOUT_SEGUNDOS) as client:
+    @_retry_external_call
+    async def search_restaurants(self, criteria: RestaurantsCriteria) -> SearchResult[MealSuggestion]:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             resp = await client.get(
                 f"{self._base_url}/location/search",
                 headers={"accept": "application/json"},
                 params={
                     "key": self._api_key,
-                    "searchQuery": criterios.cidade,
+                    "searchQuery": criteria.city,
                     "category": "restaurants",
                 },
             )
             resp.raise_for_status()
             data = resp.json()
 
-        itens = [
-            SugestaoRefeicao(
-                nome=loc["name"],
-                tipo_refeicao="almoço/jantar",
-                culinaria=loc.get("cuisine"),
-                localizacao=loc.get("address_obj", {}).get("city", criterios.cidade),
+        items = [
+            MealSuggestion(
+                name=loc["name"],
+                meal_type="almoço/jantar",
+                cuisine=loc.get("cuisine"),
+                location=loc.get("address_obj", {}).get("city", criteria.city),
                 link=loc.get("web_url"),
-                compatibilidade="Compatibilidade não verificada automaticamente; confirme no local.",
-                fonte=_fonte_real("tripadvisor", loc.get("web_url"), confianca="media"),
+                compatibility="Compatibilidade não verificada automaticamente; confirme no local.",
+                source=_real_source("tripadvisor", loc.get("web_url"), confidence="medium"),
             )
             for loc in data.get("data", [])
         ]
-        motivo = None if itens else "Tripadvisor não retornou restaurantes para o destino informado."
-        return ResultadoBusca(itens=itens, motivo_vazio=motivo)
+        reason = None if items else "Tripadvisor não retornou restaurantes para o destino informado."
+        return SearchResult(items=items, empty_reason=reason)
 
 
 class ExchangeRateProvider:
@@ -154,29 +154,29 @@ class ExchangeRateProvider:
     def __init__(self, base_url: str) -> None:
         self._base_url = base_url.rstrip("/")
 
-    @_retry_chamada_externa
-    async def cotar(self, criterios: CriteriosCambio) -> CotacaoCambio | None:
-        if criterios.moeda_origem == criterios.moeda_destino:
-            return CotacaoCambio(
-                moeda_origem=criterios.moeda_origem,
-                moeda_destino=criterios.moeda_destino,
-                taxa=Decimal("1.0"),
-                fonte=_fonte_real("exchange-api", self._base_url),
+    @_retry_external_call
+    async def get_rate(self, criteria: ExchangeCriteria) -> ExchangeRate | None:
+        if criteria.source_currency == criteria.target_currency:
+            return ExchangeRate(
+                source_currency=criteria.source_currency,
+                target_currency=criteria.target_currency,
+                rate=Decimal("1.0"),
+                source=_real_source("exchange-api", self._base_url),
             )
-        async with httpx.AsyncClient(timeout=TIMEOUT_SEGUNDOS) as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             resp = await client.get(
                 f"{self._base_url}/latest",
-                params={"from": criterios.moeda_origem, "to": criterios.moeda_destino},
+                params={"from": criteria.source_currency, "to": criteria.target_currency},
             )
             resp.raise_for_status()
             data = resp.json()
 
-        taxa = data.get("rates", {}).get(criterios.moeda_destino)
-        if taxa is None:
+        rate = data.get("rates", {}).get(criteria.target_currency)
+        if rate is None:
             return None
-        return CotacaoCambio(
-            moeda_origem=criterios.moeda_origem,
-            moeda_destino=criterios.moeda_destino,
-            taxa=Decimal(str(taxa)),
-            fonte=_fonte_real("exchange-api", self._base_url),
+        return ExchangeRate(
+            source_currency=criteria.source_currency,
+            target_currency=criteria.target_currency,
+            rate=Decimal(str(rate)),
+            source=_real_source("exchange-api", self._base_url),
         )

@@ -1,29 +1,29 @@
 from app.models.brief import TripBrief
-from app.models.common import Fonte
+from app.models.common import Source
 from app.models.plan import (
-    Atividade,
+    AccommodationOption,
+    Activity,
+    Budget,
     Checklist,
-    CotacaoCambio,
-    Deslocamento,
-    DiaItinerario,
-    OpcaoHospedagem,
-    OpcaoVoo,
-    Orcamento,
-    SugestaoRefeicao,
+    ExchangeRate,
+    FlightOption,
+    ItineraryDay,
+    MealSuggestion,
+    Transfer,
     TripPlan,
 )
 
 __all__ = [
     "TripBrief",
-    "Fonte",
-    "Atividade",
+    "Source",
+    "AccommodationOption",
+    "Activity",
+    "Budget",
     "Checklist",
-    "CotacaoCambio",
-    "Deslocamento",
-    "DiaItinerario",
-    "Orcamento",
-    "OpcaoHospedagem",
-    "OpcaoVoo",
-    "SugestaoRefeicao",
+    "ExchangeRate",
+    "FlightOption",
+    "ItineraryDay",
+    "MealSuggestion",
+    "Transfer",
     "TripPlan",
 ]

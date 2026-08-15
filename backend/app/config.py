@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 30
 
     @property
-    def model_chain_lista(self) -> list[str]:
+    def model_chain_list(self) -> list[str]:
         return [m.strip() for m in self.llm_model_chain.split(",") if m.strip()]
 
 
