@@ -106,7 +106,7 @@ Usuário ──chat──▶ /api/chat (SSE)
       ┌──────────────┼──────────────┬───────────────┐
       ▼              ▼              ▼               ▼
   Hospedagem     Atrações        Voos           Câmbio
-  (Booking)     (Tripadvisor)  (busca web)    (API pública)
+  (LiteAPI)      (Geoapify)     (SerpApi)      (API pública)
       └──────────────┴──────────────┴───────────────┘
                      │  toda resposta carrega Source
                      ▼
@@ -139,9 +139,9 @@ para o MVP.
 
 | ID | Pri | Requisito | Critério de aceite |
 |---|:--:|---|---|
-| RF-10 | M | Buscar hospedagem no destino via **Booking.com**, filtrando por datas, hóspedes e faixa de preço. | Retorna ≥ 3 opções com nome, preço/noite, localização e link. |
-| RF-11 | M | Buscar atrações e passeios via **Tripadvisor**, filtrados por interesses e perfil dos viajantes. | Retorna atrações compatíveis com os interesses do briefing. |
-| RF-12 | M | Estimar preço de voos por rota/época via pesquisa web, retornando **faixa** (mín–máx), nunca valor único falsamente preciso. | Todo voo aparece como faixa e rotulado `estimate`. |
+| RF-10 | M | Buscar hospedagem no destino via **LiteAPI**, filtrando por datas e hóspedes. | Retorna ≥ 3 opções com nome, preço/noite, localização. |
+| RF-11 | M | Buscar atrações e restaurantes via **Geoapify** (Geocoding + Places), filtrados por interesses e perfil dos viajantes. | Retorna atrações/restaurantes compatíveis com os interesses do briefing. |
+| RF-12 | M | Buscar preço de voos ao vivo via **SerpApi** (Google Flights) quando origem/destino resolvem para código IATA conhecido; caso contrário, cai para estimativa por rota/época. | Voo com dado ao vivo é rotulado `real`; sem cobertura IATA, aparece como **faixa** (mín–máx) rotulada `estimate`, nunca valor único falsamente preciso. |
 | RF-13 | M | Cotar câmbio em API pública e converter todos os valores para a moeda de exibição. | Valores exibidos na moeda escolhida, com taxa e timestamp visíveis. |
 | RF-14 | M | Sugerir restaurantes respeitando **todas** as restrições alimentares do briefing. | Nenhuma sugestão viola uma restrição declarada; a compatibilidade é justificada em uma linha. |
 | RF-15 | M | Cada dado externo carrega uma `Source` (§7.3) com tipo (`real`/`estimate`/`mock`), provedor, URL quando houver e `retrieved_at`. | 100% dos itens de custo têm `Source` preenchida. |
@@ -344,9 +344,10 @@ class AccommodationProvider(Protocol):
     async def search(self, criteria: AccommodationCriteria) -> SearchResult: ...
 ```
 
-- Implementações: `BookingProvider` (MCP), `TripadvisorProvider` (MCP),
-  `WebFlightEstimator`, `ExchangeRateProvider`, e um `MockProvider` por interface
-  alimentado por fixtures JSON versionadas.
+- Implementações: `LiteApiHotelsProvider` (REST), `GeoapifyProvider` (REST,
+  Geocoding + Places), `SerpApiFlightsProvider` (REST, engine `google_flights`),
+  `ExchangeRateProvider`, e um `MockProvider` por interface alimentado por
+  fixtures JSON versionadas.
 - **Seleção em runtime:** credencial presente e provedor saudável → real;
   caso contrário → mock, com `Source.type="mock"` e aviso propagado ao
   `TripPlan.warnings`.
@@ -439,8 +440,9 @@ frontend/
 LLM_BASE_URL=            # gateway OpenAI-compatible
 LLM_API_KEY=
 LLM_MODEL_CHAIN=         # lista ordenada: primário,fallback1,fallback2
-BOOKING_API_KEY=         # opcional — ausente ⇒ modo mock
-TRIPADVISOR_API_KEY=     # opcional — ausente ⇒ modo mock
+LITEAPI_API_KEY=         # opcional — ausente ⇒ modo mock
+SERPAPI_API_KEY=         # opcional — ausente ⇒ modo mock
+GEOAPIFY_API_KEY=        # opcional — ausente ⇒ modo mock
 EXCHANGE_API_URL=
 SESSION_TTL_MINUTES=60
 MAX_TOOL_CALLS_PER_SESSION=25
@@ -454,15 +456,15 @@ CACHE_TTL_MINUTES=15
 
 | Risco | Impacto | Mitigação |
 |---|---|---|
-| Preço de voo sem API confiável | Estimativas imprecisas frustram o usuário | Sempre exibir faixa, nunca valor único; rótulo `estimate` e confiança `low`/`medium` (RF-12) |
+| Rota sem cobertura de código IATA no SerpApi | Sem preço ao vivo para destinos menos comuns | Cai para estimativa por rota/época; sempre faixa, nunca valor único; rótulo `estimate` e confiança `low`/`medium` (RF-12) |
 | Modelo barato/gratuito com tool-calling fraco | Agente entra em loop ou ignora ferramentas | Contrato mínimo em §9; cadeia de fallback; teto de chamadas (RNF-08) |
 | Modelo gratuito descontinuado ou com rate limit | Serviço para | IDs como configuração + fallback automático (RNF-07) |
 | Provedor MCP indisponível no runtime do backend | Sem dados reais | Fallback mock rotulado; `/api/health` expõe o estado (RF-16) |
 | Alucinação de preços ou atrações inexistentes | Perda de confiança | RNF-02 + validação de que todo custo tem `Source` |
 | Sessão em memória perdida | Usuário perde o plano | Aviso na UI + incentivo à exportação precoce |
 
-**Premissas:** o usuário tem acesso à internet; os conectores Booking.com e
-Tripadvisor estão acessíveis ao backend via MCP; a API de câmbio escolhida é
+**Premissas:** o usuário tem acesso à internet; os conectores LiteAPI, SerpApi
+e Geoapify estão acessíveis ao backend via REST; a API de câmbio escolhida é
 gratuita e não exige credencial paga.
 
 ---

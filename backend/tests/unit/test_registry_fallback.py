@@ -14,19 +14,19 @@ async def test_sem_credencial_usa_mock_e_avisa(settings: Settings):
     )
     assert len(result.items) >= 3
     assert any("credencial" in w for w in warnings)
-    assert registry.provider_status()["booking"] == "mock"
+    assert registry.provider_status()["liteapi"] == "mock"
 
 
 @pytest.mark.asyncio
 async def test_provedor_real_falhando_aciona_circuit_breaker_e_fallback(settings: Settings):
-    settings_with_credential = settings.model_copy(update={"booking_api_key": "chave-fake"})
+    settings_with_credential = settings.model_copy(update={"liteapi_api_key": "chave-fake"})
     registry = ProviderRegistry(settings_with_credential)
 
     class AlwaysFailingProvider:
         async def search(self, criteria):
             raise TimeoutError("timeout simulado")
 
-    registry._booking_real = AlwaysFailingProvider()
+    registry._liteapi_real = AlwaysFailingProvider()
 
     for _ in range(3):
         warnings: list[str] = []
@@ -37,7 +37,7 @@ async def test_provedor_real_falhando_aciona_circuit_breaker_e_fallback(settings
         assert any("indisponível" in w or "credencial" in w for w in warnings)
 
     # após 3 falhas consecutivas, o circuit breaker deve estar aberto
-    assert registry.provider_status()["booking"] == "unavailable"
+    assert registry.provider_status()["liteapi"] == "unavailable"
 
     final_warnings: list[str] = []
     result = await registry.search_accommodation(

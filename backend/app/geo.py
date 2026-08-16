@@ -50,6 +50,53 @@ _INFO_BY_DESTINATION: dict[str, DestinationInfo] = {
 
 _DEFAULT_BRAZIL_INFO = DestinationInfo("BRL", "south", "tipo N (127V/220V conforme o estado)")
 
+# Heurística leve para resolver nome de cidade -> código IATA do aeroporto
+# principal, usada pelo SerpApiFlightsProvider (que exige código de aeroporto,
+# não aceita nome de cidade livre). Cobre os destinos dos cenários de aceite
+# (§3 REQUIREMENTS.md) e outros grandes hubs; rota não coberta aqui cai para
+# estimativa mock (RF-16), não é um erro.
+_IATA_BY_CITY: dict[str, str] = {
+    "sao paulo": "GRU",
+    "rio de janeiro": "GIG",
+    "brasilia": "BSB",
+    "salvador": "SSA",
+    "fortaleza": "FOR",
+    "recife": "REC",
+    "florianopolis": "FLN",
+    "porto alegre": "POA",
+    "belo horizonte": "CNF",
+    "curitiba": "CWB",
+    "manaus": "MAO",
+    "natal": "NAT",
+    "belem": "BEL",
+    "lisboa": "LIS",
+    "porto": "OPO",
+    "paris": "CDG",
+    "roma": "FCO",
+    "milao": "MXP",
+    "madri": "MAD",
+    "madrid": "MAD",
+    "barcelona": "BCN",
+    "londres": "LHR",
+    "nova york": "JFK",
+    "new york": "JFK",
+    "miami": "MIA",
+    "orlando": "MCO",
+    "buenos aires": "EZE",
+    "santiago": "SCL",
+    "lima": "LIM",
+    "tokyo": "NRT",
+    "toquio": "NRT",
+}
+
+
+def iata_code_for(city: str) -> str | None:
+    city_slug = _slug(city)
+    for key, code in _IATA_BY_CITY.items():
+        if key in city_slug:
+            return code
+    return None
+
 
 def _slug(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().strip().lower()

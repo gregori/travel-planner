@@ -12,12 +12,14 @@ services:
         sync: false
       - key: LLM_MODEL_CHAIN
         value: openrouter/auto
-      - key: BOOKING_API_KEY
+      - key: LITEAPI_API_KEY
         sync: false
-      - key: TRIPADVISOR_API_KEY
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: GEOAPIFY_API_KEY
         sync: false
       - key: EXCHANGE_API_URL
-        value: https://api.frankfurter.app
+        value: https://api.frankfurter.dev/v1
       - key: SESSION_TTL_MINUTES
         value: "60"
       - key: MAX_TOOL_CALLS_PER_SESSION

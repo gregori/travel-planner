@@ -90,8 +90,11 @@ POST /api/chat (SSE)  →  process_message() [agent/loop.py]
   Real provider used only if an API key is configured *and* its `CircuitBreaker` is closed (opens
   after 3 failures in a 300s window); otherwise falls back to the matching `Mock*Provider` and
   appends a warning string to the caller-supplied `warnings` list — that list flows into
-  `TripPlan.warnings` and must reach the UI, not just a log line. Flights have no "real" mode by
-  design — they're always `estimate` (RF-12).
+  `TripPlan.warnings` and must reach the UI, not just a log line. Real providers: `LiteApiHotelsProvider`
+  (hotels — search only, never `prebook`/`book`, per OUT-1 in REQUIREMENTS.md), `SerpApiFlightsProvider`
+  (flights, engine `google_flights` — labeled `real` when the origin/destination resolve to a known
+  IATA code via `app.geo.iata_code_for`, otherwise falls back to the `estimate`-labeled mock, RF-12),
+  `GeoapifyProvider` (attractions + restaurants, via Geocoding + Places APIs).
 - **`llm/`** — `LLMClient` Protocol (`llm/base.py`) isolates the agent from the model provider.
   `openai_client.py` is the OpenAI-compatible implementation with the model-fallback chain
   (`LLM_MODEL_CHAIN`, comma-separated, first = primary); `fake.py` is the deterministic client

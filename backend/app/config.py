@@ -8,9 +8,10 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model_chain: str = "openrouter/auto"
 
-    booking_api_key: str | None = None
-    tripadvisor_api_key: str | None = None
-    exchange_api_url: str = "https://api.frankfurter.app"
+    liteapi_api_key: str | None = None
+    serpapi_api_key: str | None = None
+    geoapify_api_key: str | None = None
+    exchange_api_url: str = "https://api.frankfurter.dev/v1"
 
     session_ttl_minutes: int = 60
     max_tool_calls_per_session: int = 25
