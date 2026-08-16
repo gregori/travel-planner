@@ -18,7 +18,12 @@ from app.providers.mock import (
     MockFlightEstimator,
     MockRestaurantsProvider,
 )
-from app.providers.real import BookingProvider, ExchangeRateProvider, TripadvisorProvider
+from app.providers.real import (
+    ExchangeRateProvider,
+    GeoapifyProvider,
+    LiteApiHotelsProvider,
+    SerpApiFlightsProvider,
+)
 
 logger = logging.getLogger("travel_planner.providers")
 
@@ -34,9 +39,14 @@ class ProviderRegistry:
         self._settings = settings
         self._breaker = CircuitBreaker(failure_threshold=3, window_seconds=300.0)
 
-        self._booking_real = BookingProvider(settings.booking_api_key) if settings.booking_api_key else None
-        self._tripadvisor_real = (
-            TripadvisorProvider(settings.tripadvisor_api_key) if settings.tripadvisor_api_key else None
+        self._liteapi_real = (
+            LiteApiHotelsProvider(settings.liteapi_api_key) if settings.liteapi_api_key else None
+        )
+        self._geoapify_real = (
+            GeoapifyProvider(settings.geoapify_api_key) if settings.geoapify_api_key else None
+        )
+        self._serpapi_real = (
+            SerpApiFlightsProvider(settings.serpapi_api_key) if settings.serpapi_api_key else None
         )
         self._exchange_real = (
             ExchangeRateProvider(settings.exchange_api_url) if settings.exchange_api_url else None
@@ -45,15 +55,15 @@ class ProviderRegistry:
         self._accommodation_mock = MockAccommodationProvider()
         self._attractions_mock = MockAttractionsProvider()
         self._restaurants_mock = MockRestaurantsProvider()
-        self._flights = MockFlightEstimator()
+        self._flights_mock = MockFlightEstimator()
         self._exchange_mock = MockExchangeRateProvider()
 
     async def search_accommodation(
         self, criteria: AccommodationCriteria, warnings: list[str]
     ) -> SearchResult:
         return await self._with_fallback(
-            "booking",
-            self._booking_real,
+            "liteapi",
+            self._liteapi_real,
             lambda p: p.search(criteria),
             lambda: self._accommodation_mock.search(criteria),
             warnings,
@@ -61,8 +71,8 @@ class ProviderRegistry:
 
     async def search_attractions(self, criteria: AttractionsCriteria, warnings: list[str]) -> SearchResult:
         return await self._with_fallback(
-            "tripadvisor",
-            self._tripadvisor_real,
+            "geoapify",
+            self._geoapify_real,
             lambda p: p.search_attractions(criteria),
             lambda: self._attractions_mock.search(criteria),
             warnings,
@@ -70,16 +80,21 @@ class ProviderRegistry:
 
     async def search_restaurants(self, criteria: RestaurantsCriteria, warnings: list[str]) -> SearchResult:
         return await self._with_fallback(
-            "tripadvisor",
-            self._tripadvisor_real,
+            "geoapify",
+            self._geoapify_real,
             lambda p: p.search_restaurants(criteria),
             lambda: self._restaurants_mock.search(criteria),
             warnings,
         )
 
     async def estimate_flights(self, criteria: FlightCriteria, warnings: list[str]) -> SearchResult:
-        # RF-12: voos são sempre "estimate" — não há modo "real" nesta camada.
-        return await self._flights.estimate(criteria)
+        return await self._with_fallback(
+            "serpapi",
+            self._serpapi_real,
+            lambda p: p.estimate(criteria),
+            lambda: self._flights_mock.estimate(criteria),
+            warnings,
+        )
 
     async def get_exchange_rate(self, criteria: ExchangeCriteria, warnings: list[str]) -> ExchangeRate | None:
         result = await self._with_fallback(
@@ -96,8 +111,9 @@ class ProviderRegistry:
         """Status para /api/health: real | unavailable | mock."""
         result: dict[str, str] = {}
         for name, real in (
-            ("booking", self._booking_real),
-            ("tripadvisor", self._tripadvisor_real),
+            ("liteapi", self._liteapi_real),
+            ("geoapify", self._geoapify_real),
+            ("serpapi", self._serpapi_real),
             ("exchange-api", self._exchange_real),
         ):
             if real is None:
@@ -106,7 +122,6 @@ class ProviderRegistry:
                 result[name] = "unavailable"
             else:
                 result[name] = "real"
-        result["flights"] = "estimate"
         return result
 
     async def _with_fallback(

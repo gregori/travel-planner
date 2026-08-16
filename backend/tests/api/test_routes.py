@@ -11,8 +11,9 @@ def client(monkeypatch):
     monkeypatch.setenv("LLM_MODEL_CHAIN", "fake-model")
     monkeypatch.setenv("LLM_BASE_URL", "http://llm.invalid")
     monkeypatch.setenv("LLM_API_KEY", "")
-    monkeypatch.setenv("BOOKING_API_KEY", "")
-    monkeypatch.setenv("TRIPADVISOR_API_KEY", "")
+    monkeypatch.setenv("LITEAPI_API_KEY", "")
+    monkeypatch.setenv("SERPAPI_API_KEY", "")
+    monkeypatch.setenv("GEOAPIFY_API_KEY", "")
     app = create_app()
     with TestClient(app) as c:
         yield app, c
@@ -24,7 +25,7 @@ def test_health(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
-    assert body["providers"]["booking"] == "mock"
+    assert body["providers"]["liteapi"] == "mock"
 
 
 def test_criar_sessao(client):
