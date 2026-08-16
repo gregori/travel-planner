@@ -1,5 +1,7 @@
+import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 # Heurística leve para MVP pt-BR: mapeia destinos conhecidos para moeda,
 # hemisfério (para estação do ano) e padrão de tomada elétrica local.
@@ -175,6 +177,48 @@ _MONTH_NAME_TO_NUMBER = {
 }
 
 
+_YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+
+def _month_number_for(reference_month: str) -> int | None:
+    """Extrai o número do mês de um texto livre em pt-BR (ex.: "janeiro",
+    "janeiro de 2027", "jan/2027") — usa correspondência por substring, não
+    igualdade exata, para tolerar texto extra como o ano."""
+    slug = _slug(reference_month)
+    for name, number in _MONTH_NAME_TO_NUMBER.items():
+        if name in slug:
+            return number
+    return None
+
+
+def _year_for(reference_month: str, month_number: int, today: date) -> int:
+    """Extrai o ano do texto, ou infere o próximo ano em que esse mês ocorre
+    a partir de hoje quando o texto não menciona um ano explícito."""
+    match = _YEAR_RE.search(reference_month)
+    if match:
+        return int(match.group(1))
+    return today.year if month_number >= today.month else today.year + 1
+
+
+def sample_dates_for_reference_month(
+    reference_month: str | None, duration_days: int | None, today: date | None = None
+) -> tuple[date, date] | None:
+    """Deriva um intervalo de check-in/check-out representativo quando só se
+    conhece o mês de referência e a duração (RF-02 aceita "mês + duração"
+    como alternativa a datas exatas). Isso permite buscas reais em provedores
+    que exigem datas concretas (ex.: LiteAPI) mesmo antes de o usuário fixar
+    o dia exato — usa o primeiro dia do mês como âncora."""
+    if not reference_month or not duration_days:
+        return None
+    month_number = _month_number_for(reference_month)
+    if month_number is None:
+        return None
+    year = _year_for(reference_month, month_number, today or date.today())
+    check_in = date(year, month_number, 1)
+    check_out = check_in + timedelta(days=duration_days)
+    return check_in, check_out
+
+
 def season_for_month(destination: str, month_number: int | None) -> str | None:
     if month_number is None:
         return None
@@ -192,7 +236,7 @@ def heuristic_weather_description(
 ) -> str:
     """Estimativa heurística de clima por estação do ano — não é previsão
     meteorológica real; o checklist deixa isso explícito (RF-27)."""
-    number = month_number or (_MONTH_NAME_TO_NUMBER.get(_slug(reference_month)) if reference_month else None)
+    number = month_number or (_month_number_for(reference_month) if reference_month else None)
     season = season_for_month(destination, number)
     period = reference_month or "o período da viagem"
     if season is None:

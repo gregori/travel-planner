@@ -18,6 +18,30 @@ async def test_sem_credencial_usa_mock_e_avisa(settings: Settings):
 
 
 @pytest.mark.asyncio
+async def test_criterios_insuficientes_nao_aciona_circuit_breaker(settings: Settings):
+    settings_with_credential = settings.model_copy(update={"liteapi_api_key": "chave-fake"})
+    registry = ProviderRegistry(settings_with_credential)
+
+    class RequiresDatesProvider:
+        async def search(self, criteria):
+            if criteria.check_in is None or criteria.check_out is None:
+                raise ValueError("LiteAPI exige check_in e check_out para buscar tarifas.")
+            raise AssertionError("não deveria ser chamado com datas neste teste")
+
+    registry._liteapi_real = RequiresDatesProvider()
+
+    warnings: list[str] = []
+    result = await registry.search_accommodation(
+        AccommodationCriteria(city="Cidade do México", check_in=None, check_out=None, guests=4), warnings
+    )
+    assert len(result.items) >= 3
+    assert any("insuficientes" in w for w in warnings)
+    assert not any("indisponível" in w for w in warnings)
+    # datas ausentes não são uma falha do provedor — circuit breaker deve seguir fechado
+    assert registry.provider_status()["liteapi"] == "real"
+
+
+@pytest.mark.asyncio
 async def test_provedor_real_falhando_aciona_circuit_breaker_e_fallback(settings: Settings):
     settings_with_credential = settings.model_copy(update={"liteapi_api_key": "chave-fake"})
     registry = ProviderRegistry(settings_with_credential)

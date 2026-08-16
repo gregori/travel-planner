@@ -138,6 +138,14 @@ class ProviderRegistry:
                 result = await call_real(real_provider)
                 self._breaker.record_success(provider_name)
                 return result
+            except ValueError as exc:
+                # Critérios insuficientes (ex.: datas ainda não confirmadas) — não é uma
+                # falha do provedor, então não deve acionar o circuit breaker.
+                logger.info("provedor real '%s' pulado: %s", provider_name, exc)
+                warnings.append(
+                    f"Dados insuficientes para buscar {provider_name} em tempo real; "
+                    "usando estimativa."
+                )
             except Exception as exc:  # noqa: BLE001 - fallback intencional (RNF-06)
                 logger.warning("provedor real '%s' falhou: %s", provider_name, exc)
                 self._breaker.record_failure(provider_name)
