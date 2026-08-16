@@ -90,6 +90,43 @@
   white-space: pre-wrap;
 }
 
+.chat__bubble p {
+  margin: 0.4em 0;
+}
+
+.chat__bubble p:first-child {
+  margin-top: 0;
+}
+
+.chat__bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.chat__bubble ul,
+.chat__bubble ol {
+  margin: 0.4em 0;
+  padding-left: 1.3em;
+}
+
+.chat__bubble code {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+  font-size: 0.9em;
+}
+
+.chat__bubble pre {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  padding: 0.5em 0.7em;
+  overflow-x: auto;
+}
+
+.chat__bubble pre code {
+  background: none;
+  padding: 0;
+}
+
 .chat__bubble--user {
   align-self: flex-end;
   background: var(--color-primary);
@@ -139,11 +176,14 @@
   margin-top: 0.75rem;
 }
 
-.chat__form input {
+.chat__form textarea {
   flex: 1;
   padding: 0.6rem 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: 8px;
+  font: inherit;
+  resize: vertical;
+  min-height: 2.4rem;
 }
 
 .chat__form button {
