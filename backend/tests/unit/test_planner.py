@@ -99,6 +99,70 @@ async def test_gerar_plano_domestico_sem_cambio(settings, registry: ProviderRegi
 
 
 @pytest.mark.asyncio
+async def test_gerar_plano_com_mes_de_referencia_busca_hospedagem_real_com_datas_derivadas(
+    settings, registry: ProviderRegistry
+):
+    """Quando só há mês + duração (sem data exata), o provedor real ainda
+    deve ser chamado — com um intervalo de datas derivado do mês — em vez de
+    cair direto no mock só porque check_in/check_out exatos não existem."""
+    from datetime import UTC, datetime
+
+    from app.models.common import Source
+    from app.providers.base import AccommodationOption, SearchResult
+
+    received_criteria = {}
+
+    class FakeRealAccommodationProvider:
+        async def search(self, criteria):
+            received_criteria["check_in"] = criteria.check_in
+            received_criteria["check_out"] = criteria.check_out
+            return SearchResult(
+                items=[
+                    AccommodationOption(
+                        name="Hotel Real",
+                        type="hotel",
+                        price_per_night=500,
+                        currency="MXN",
+                        location="Centro",
+                        rating=4.5,
+                        link=None,
+                        source=Source(
+                            type="real",
+                            provider="liteapi",
+                            url=None,
+                            retrieved_at=datetime.now(UTC),
+                            confidence="high",
+                            note=None,
+                        ),
+                    )
+                ]
+            )
+
+    registry._liteapi_real = FakeRealAccommodationProvider()
+
+    store = SessionStore(ttl_minutes=60)
+    state = store.create()
+    state.brief = TripBrief(
+        origin="São Paulo",
+        destination="Cidade do México",
+        reference_month="janeiro de 2027",
+        duration_days=10,
+        adults=3,
+        children_ages=[15],
+        total_budget=Decimal("30000"),
+        trip_type="family",
+    )
+    ctx = AgentContext(session=state, registry=registry, settings=settings)
+
+    plan = await generate_plan(ctx)
+
+    assert received_criteria["check_in"] == date(2027, 1, 1)
+    assert received_criteria["check_out"] == date(2027, 1, 11)
+    assert any(o.name == "Hotel Real" for o in plan.accommodation_options)
+    assert any("datas exatas" in w.lower() for w in plan.warnings)
+
+
+@pytest.mark.asyncio
 async def test_provedor_vazio_sem_motivo_ainda_declara_lacuna(settings, registry: ProviderRegistry):
     """RNF-02: mesmo se um provedor devolver lista vazia sem `empty_reason`
     preenchido, o plano precisa declarar a lacuna — nunca ficar em silêncio

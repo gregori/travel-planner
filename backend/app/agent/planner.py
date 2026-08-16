@@ -12,7 +12,7 @@ from app.agent.tools import (
     search_restaurants_cached,
     tool_practical_info,
 )
-from app.geo import currency_for_destination, is_international
+from app.geo import currency_for_destination, is_international, sample_dates_for_reference_month
 from app.models.common import Source
 from app.models.plan import Checklist, TripPlan
 
@@ -84,6 +84,21 @@ async def generate_plan(ctx: AgentContext) -> TripPlan:
     origin = brief.origin or "Origem não informada"
     total_days = max(1, brief.estimated_duration() or 3)
 
+    # RF-02 aceita "mês + duração" como alternativa a datas exatas. Provedores
+    # reais (LiteAPI, SerpApi) exigem datas concretas — quando o usuário ainda
+    # não fixou o dia exato, deriva um intervalo representativo a partir do
+    # mês de referência para permitir busca real em vez de cair direto no mock.
+    search_start_date, search_end_date = brief.start_date, brief.end_date
+    if not (search_start_date and search_end_date):
+        sample_range = sample_dates_for_reference_month(brief.reference_month, brief.duration_days)
+        if sample_range:
+            search_start_date, search_end_date = sample_range
+            warnings.append(
+                f"Datas exatas ainda não confirmadas; preços de hospedagem e voos usam "
+                f"{search_start_date.strftime('%d/%m/%Y')} a {search_end_date.strftime('%d/%m/%Y')} "
+                "como referência para o mês informado."
+            )
+
     # Câmbio (RF-13) — só quando a moeda do destino difere da moeda de exibição.
     local_currency = currency_for_destination(destination)
     exchange_rate = None
@@ -95,7 +110,7 @@ async def generate_plan(ctx: AgentContext) -> TripPlan:
 
     # Hospedagem (RF-10, RF-24: >= 3 opções)
     accommodation_result = await search_accommodation_cached(
-        ctx, destination, brief.start_date, brief.end_date, brief.total_travelers, warnings
+        ctx, destination, search_start_date, search_end_date, brief.total_travelers, warnings
     )
     accommodation_options = accommodation_result.items
     if accommodation_options:
@@ -133,7 +148,7 @@ async def generate_plan(ctx: AgentContext) -> TripPlan:
     flight_options = []
     if brief.origin:
         flights_result = await estimate_flights_cached(
-            ctx, origin, destination, brief.start_date, brief.end_date, brief.total_travelers, warnings
+            ctx, origin, destination, search_start_date, search_end_date, brief.total_travelers, warnings
         )
         flight_options = flights_result.items
         sources.extend(f.source for f in flight_options)
