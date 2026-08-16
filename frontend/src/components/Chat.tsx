@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type KeyboardEvent } from 'react'
+import ReactMarkdown from 'react-markdown'
 import type { ChatMessage } from '../api/types'
 
 interface ChatProps {
@@ -10,12 +11,23 @@ interface ChatProps {
 export function Chat({ messages, waiting, onSend }: ChatProps) {
   const [text, setText] = useState('')
 
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault()
+  function send() {
     const value = text.trim()
     if (!value || waiting) return
     onSend(value)
     setText('')
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault()
+    send()
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      send()
+    }
   }
 
   return (
@@ -30,7 +42,11 @@ export function Chat({ messages, waiting, onSend }: ChatProps) {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`chat__bubble chat__bubble--${m.author}`}>
-            {m.text}
+            {m.author === 'agent' ? (
+              <ReactMarkdown>{m.text}</ReactMarkdown>
+            ) : (
+              m.text
+            )}
           </div>
         ))}
         {waiting && (
@@ -45,13 +61,14 @@ export function Chat({ messages, waiting, onSend }: ChatProps) {
         <label htmlFor="chat-input" className="visually-hidden">
           Mensagem para o assistente
         </label>
-        <input
+        <textarea
           id="chat-input"
-          type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Ex.: Quero ir para Lisboa em outubro, 2 adultos e 1 criança"
           disabled={waiting}
+          rows={2}
         />
         <button type="submit" disabled={waiting || !text.trim()}>
           Enviar
